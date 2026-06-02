@@ -1,0 +1,128 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. 用户与权限模块 (RBAC)
+// ==========================================
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String   // 采用 bcrypt 哈希加密存储
+  nickname  String?
+  avatar    String?
+  status    Int      @default(1) // 1: 启用, 0: 禁用
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("sys_user")
+}
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique // 例如: ADMIN (超级管理员), OPERATOR (运营)
+  description String?
+  users       User[]
+  permissions Permission[] @relation("RoleToPermission")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("sys_role")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   // 权限名称，如 "生成注册码"
+  code        String   @unique // 权限标识，如 "regcode:create"
+  description String?
+  roles       Role[]   @relation("RoleToPermission")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("sys_permission")
+}
+
+// ==========================================
+// 2. 注册码授权管理模块
+// ==========================================
+
+model RegisterCode {
+  id           String      @id @default(uuid())
+  code         String      @unique // 注册码文本
+  expireTime   DateTime    @map("expire_time") // 有效期截止时间
+  maxActive    Int         @default(1) @map("max_active") // 该卡最大允许同时绑定的设备数
+  usedNum      Int         @default(0) @map("used_num") // 当前已绑定的设备数
+  status       Int         @default(1) // 状态：1-正常可用，0-禁用，2-已过期，3-设备数已满
+  
+  // 绑定设备详情：存储设备ID、激活时间、IP等。
+  // 格式如：[{"deviceId": "DEV001", "activatedAt": "2026-06-02T12:00:00Z"}]
+  bindDevices  Json        @default("[]") @map("bind_devices")
+  
+  // 权限细分：该卡允许客户端调用哪些 API 接口或脚本功能
+  // 格式如：["script:run", "api:data:fetch"]
+  allowedApis  Json        @default("[]") @map("allowed_apis")
+  
+  logs         ScriptLog[]
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  @@map("register_code")
+}
+
+// ==========================================
+// 3. 客户端脚本运行日志模块
+// ==========================================
+
+model ScriptLog {
+  id             String        @id @default(uuid())
+  deviceId       String        @map("device_id") // 上报的设备唯一标识
+  registerCodeId String?       @map("register_code_id") // 关联的注册码，支持级联
+  registerCode   RegisterCode? @relation(fields: [registerCodeId], references: [id], onDelete: SetNull)
+  level          String        // 日志级别: INFO, WARN, ERROR, DEBUG
+  message        String        @db.Text // 具体的日志文本内容
+  
+  // 结构化上下文：如报错时的异常堆栈、自定义业务变量参数等
+  extraData      Json?         @map("extra_data")
+  
+  // 日志产生时间（由客户端上报时携带，或者落库时自动生成）
+  timestamp      DateTime      @default(now())
+
+  // 索引设计：优化日志检索与高频查询
+  @@index([deviceId])
+  @@index([registerCodeId])
+  @@index([timestamp])
+  @@map("script_log")
+}
+
+// ==========================================
+// 4. AI Agent 服务配置模块
+// ==========================================
+
+model AiAgentConfig {
+  id           String   @id @default(uuid())
+  name         String   @unique // Agent 名称，例如 "自动化脚本助手"
+  model        String   // 使用的大模型名，例如 "deepseek-chat", "gpt-4o"
+  systemPrompt String   @db.Text @map("system_prompt") // 系统设定/Prompt
+  temperature  Float    @default(0.7)
+  maxTokens    Int      @default(2048) @map("max_tokens")
+  
+  // 函数调用(Function Calling)/Tools 定义列表
+  // 格式如：[{"type": "function", "function": { "name": "reboot_device", ... }}]
+  tools        Json     @default("[]")
+  
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_agent_config")
+}
