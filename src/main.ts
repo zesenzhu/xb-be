@@ -14,6 +14,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { PrismaClient } from '@prisma/client';
+import { seedDatabase } from '../prisma/seed';
 
 async function bootstrap() {
   // 1. 初始化 NestJS 服务实例
@@ -61,7 +63,21 @@ async function bootstrap() {
     },
   });
 
-  // 5. 监听端口，环境变量优先，兜底为规范后的 8081
+  // 5. 自动静默播种初始数据 (完美穿透 WASM 虚拟本地库的物理连接屏障)
+  const prisma = new PrismaClient();
+  try {
+    const userCount = await prisma.user.count();
+    if (userCount === 0) {
+      console.log('[NestJS] ⚙️ 检测到 sys_user 数据库表为空，正在主进程物理上下文中自动进行数据播种...');
+      await seedDatabase(prisma);
+    }
+  } catch (seedErr) {
+    console.warn('[NestJS] ⚠️ 自动执行初始数据播种提示 (如迁移阶段表尚不存在):', seedErr.message);
+  } finally {
+    await prisma.$disconnect();
+  }
+
+  // 6. 监听端口，环境变量优先，兜底为规范后的 8081
   const port = process.env.PORT || 8081;
   await app.listen(port);
   console.log(`[NestJS] 🚀 智能后端服务成功拉起！`);
