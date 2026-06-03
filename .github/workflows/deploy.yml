@@ -59,6 +59,32 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Downcase registry image name
+        run: |
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+
+      - name: Generate .env file
+        run: |
+          echo "DB_USER=${{ secrets.DB_USER || 'postgres' }}" > .env
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD || 'postgrespassword' }}" >> .env
+          echo "DB_NAME=${{ secrets.DB_NAME || 'xbnest' }}" >> .env
+          echo "DB_PORT=${{ secrets.DB_PORT || '5432' }}" >> .env
+          echo "BACKEND_PORT=${{ secrets.BACKEND_PORT || '8081' }}" >> .env
+          echo "BACKEND_IMAGE=ghcr.io/${{ env.IMAGE_NAME }}:latest" >> .env
+
+      - name: Copy docker-compose and .env via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "docker-compose.prod.yml,.env"
+          target: "/www/wwwroot/xbnest/backend/"
+
       - name: SSH Remote Commands to Deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -67,14 +93,9 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            # 1. 物理建立并进入云服务器编排部署目录
-            cd /www/wwwroot/xbnest || mkdir -p /www/wwwroot/xbnest && cd /www/wwwroot/xbnest
-            
-            # 2. 从 GHCR 官方镜像库物理拉取编译好的最新后端镜像
-            docker compose -f docker-compose.prod.yml pull backend
-            
-            # 3. 优雅热拉起后端容器服务
-            docker compose -f docker-compose.prod.yml up -d backend
-            
-            # 4. 清理旧的无用镜像以防塞满物理磁盘
+            set -e
+            mkdir -p /www/wwwroot/xbnest/backend
+            cd /www/wwwroot/xbnest/backend
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
             docker image prune -f

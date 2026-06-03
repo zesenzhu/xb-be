@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: xbnest-db-dev
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgrespassword}
+      POSTGRES_DB: ${DB_NAME_DEV:-xbnest_dev}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME_DEV:-xbnest_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: node:22-alpine
+    container_name: xbnest-backend-dev
+    working_dir: /app
+    ports:
+      - "${BACKEND_PORT:-8081}:8081"
+    environment:
+      DATABASE_URL: "postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgrespassword}@db:5432/${DB_NAME_DEV:-xbnest_dev}?sslmode=disable"
+      PORT: 8081
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npm install -g pnpm && pnpm install && npx prisma generate && npx prisma db push && pnpm run start:dev"
+
+volumes:
+  pgdata_dev:
