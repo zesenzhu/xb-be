@@ -8,6 +8,8 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 /**
  * 核心播种业务逻辑。
@@ -84,6 +86,26 @@ export async function seedDatabase(prisma: PrismaClient) {
       description: '负责激活码发放、设备自检与AI任务监控的常规运营账号',
       permissions: {
         connect: operatorPermissions.map(p => ({ id: p.id }))
+      }
+    }
+  });
+
+  const clientPermissions = permissions.filter(
+    p => ['log:list', 'device:list'].includes(p.code)
+  );
+
+  const clientRole = await prisma.role.upsert({
+    where: { name: '终端授权用户' },
+    update: {
+      permissions: {
+        set: clientPermissions.map(p => ({ id: p.id }))
+      }
+    },
+    create: {
+      name: '终端授权用户',
+      description: '使用设备授权激活码登录的对外普通客户端账号',
+      permissions: {
+        connect: clientPermissions.map(p => ({ id: p.id }))
       }
     }
   });
@@ -166,9 +188,18 @@ export async function seedDatabase(prisma: PrismaClient) {
   console.log('=== [Prisma Seed] ✓ 恭喜！初始化种子数据全数注入成功！ ===');
 }
 
-// 兼容原有的独立 CLI 播种运行
 if (require.main === module) {
-  const prisma = new PrismaClient();
+  const options: any = {};
+  const dbUrl = process.env.DATABASE_URL || '';
+  let pool: Pool | undefined;
+
+  if (dbUrl.startsWith('prisma://') || dbUrl.startsWith('prisma+postgres://')) {
+    options.accelerateUrl = dbUrl;
+  } else if (dbUrl) {
+    pool = new Pool({ connectionString: dbUrl });
+    options.adapter = new PrismaPg(pool);
+  }
+  const prisma = new PrismaClient(options);
   main();
   
   async function main() {
@@ -179,6 +210,9 @@ if (require.main === module) {
       process.exit(1);
     } finally {
       await prisma.$disconnect();
+      if (pool) {
+        await pool.end();
+      }
     }
   }
 }

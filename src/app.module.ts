@@ -7,9 +7,11 @@ import { RegisterCodeModule } from './modules/register-code/register-code.module
 import { ScriptLogModule } from './modules/script-log/script-log.module';
 import { MqttModule } from './modules/mqtt/mqtt.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
+import { PrismaModule } from './modules/prisma/prisma.module';
 
 @Module({
   imports: [
+    PrismaModule,
     AuthModule,
     UserModule,
     RegisterCodeModule,

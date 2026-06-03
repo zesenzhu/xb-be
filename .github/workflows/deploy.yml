@@ -1,0 +1,80 @@
+name: Deploy Backend to Cloud
+
+on:
+  push:
+    tags:
+      - 'v*' # 仅当推送以 v 开头的版本 Tag 时触发编译与自动部署流水线 (例如 v1.0.0)
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Downcase registry image name
+        run: |
+          # ⚠️ 避坑：Docker 镜像包命名强制要求全小写，在此通过 bash 物理转为小写以防大写用户名导致构建熔断
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # 使用 Actions 内置免密 Token 登录 GHCR 仓库
+
+      - name: Extract Metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=true
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ # 后端目录的 context (即后端仓库根目录)
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH Remote Commands to Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            # 1. 物理建立并进入云服务器编排部署目录
+            cd /www/wwwroot/xbnest || mkdir -p /www/wwwroot/xbnest && cd /www/wwwroot/xbnest
+            
+            # 2. 从 GHCR 官方镜像库物理拉取编译好的最新后端镜像
+            docker compose -f docker-compose.prod.yml pull backend
+            
+            # 3. 优雅热拉起后端容器服务
+            docker compose -f docker-compose.prod.yml up -d backend
+            
+            # 4. 清理旧的无用镜像以防塞满物理磁盘
+            docker image prune -f

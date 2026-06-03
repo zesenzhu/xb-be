@@ -16,6 +16,8 @@ import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PrismaClient } from '@prisma/client';
 import { seedDatabase } from '../prisma/seed';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 async function bootstrap() {
   // 1. 初始化 NestJS 服务实例
@@ -64,7 +66,16 @@ async function bootstrap() {
   });
 
   // 5. 自动静默播种初始数据 (完美穿透 WASM 虚拟本地库的物理连接屏障)
-  const prisma = new PrismaClient();
+  const prismaOptions: any = {};
+  const dbUrl = process.env.DATABASE_URL || '';
+  let pool: Pool | undefined;
+  if (dbUrl.startsWith('prisma://') || dbUrl.startsWith('prisma+postgres://')) {
+    prismaOptions.accelerateUrl = dbUrl;
+  } else if (dbUrl) {
+    pool = new Pool({ connectionString: dbUrl });
+    prismaOptions.adapter = new PrismaPg(pool);
+  }
+  const prisma = new PrismaClient(prismaOptions);
   try {
     const userCount = await prisma.user.count();
     if (userCount === 0) {
@@ -75,6 +86,9 @@ async function bootstrap() {
     console.warn('[NestJS] ⚠️ 自动执行初始数据播种提示 (如迁移阶段表尚不存在):', seedErr.message);
   } finally {
     await prisma.$disconnect();
+    if (pool) {
+      await pool.end();
+    }
   }
 
   // 6. 监听端口，环境变量优先，兜底为规范后的 8081
