@@ -1,6 +1,7 @@
 node_modules
 /node_modules
 .pnpm-store/
+pnpm-workspace.yaml
 
 # 编译与构建输出产物过滤 (NestJS build)
 /dist
