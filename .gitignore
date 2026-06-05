@@ -1,6 +1,6 @@
-# 依赖与第三方包物理过滤
 node_modules
 /node_modules
+.pnpm-store/
 
 # 编译与构建输出产物过滤 (NestJS build)
 /dist
