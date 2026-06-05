@@ -33,7 +33,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: sh -c "npm install -g pnpm && pnpm install && npx prisma generate && npx prisma db push && pnpm run start:dev"
+    command: sh -c "npm install -g pnpm@9 && pnpm install && npx prisma generate && npx prisma db push && pnpm run start:dev"
 
 volumes:
   pgdata_dev:
