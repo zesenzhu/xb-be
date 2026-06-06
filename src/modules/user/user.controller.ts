@@ -8,6 +8,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpStatus, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { UserService } from './user.service';
+import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 @ApiTags('User 用户管理')
 @Controller('users')
@@ -53,7 +54,7 @@ export class UserController {
   @ApiOperation({ summary: '创建系统用户', description: '添加一个系统新账号，密码经过 bcrypt 加密存储。' })
   @ApiResponse({ status: 201, description: '创建成功' })
   @ApiResponse({ status: 400, description: '用户名已存在' })
-  async createUser(@Body() body: any) {
+  async createUser(@Body() body: CreateUserDto) {
     return this.userService.create(body);
   }
 
@@ -65,7 +66,7 @@ export class UserController {
   @ApiOperation({ summary: '编辑系统用户', description: '修改系统用户的邮箱、昵称、分配角色或账户启用/禁用状态。' })
   @ApiResponse({ status: 200, description: '修改成功' })
   @ApiResponse({ status: 404, description: '用户不存在' })
-  async updateUser(@Param('id') id: string, @Body() body: any) {
+  async updateUser(@Param('id') id: string, @Body() body: UpdateUserDto) {
     return this.userService.update(id, body);
   }
 

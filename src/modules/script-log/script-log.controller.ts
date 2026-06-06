@@ -9,6 +9,7 @@ import { Controller, Get, Sse, MessageEvent, Query, HttpStatus, HttpCode, BadReq
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
+import { Prisma } from '@prisma/client';
 import { Observable } from 'rxjs';
 import { filter, map, finalize } from 'rxjs/operators';
 
@@ -66,7 +67,7 @@ export class ScriptLogController {
     const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 20;
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
+    const where: Prisma.ScriptLogWhereInput = {};
     if (deviceId) {
       where.deviceId = deviceId;
     }

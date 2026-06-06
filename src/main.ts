@@ -13,6 +13,7 @@
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PrismaClient } from '@prisma/client';
 import { seedDatabase } from '../prisma/seed';
@@ -37,6 +38,14 @@ async function bootstrap() {
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type,Accept,Authorization,X-Requested-With,X-License-Code',
   });
+
+  // 4. 启用全局强类型 DTO 校验管道，拦截非法字段
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // 过滤掉 DTO 中未声明的非白名单属性
+      transform: true, // 自动转换数据类型为 DTO 中声明的物理类型
+    }),
+  );
 
   // 4. 集成 NestJS 官方 Swagger (OpenAPI 3.0) 自动文档生成器
   // 基于 DTO 与装饰器实现“代码即文档”秒级同步，托管于 /api/docs 路径下

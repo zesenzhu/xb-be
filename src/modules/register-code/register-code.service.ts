@@ -9,6 +9,13 @@ import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef 
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
 import * as crypto from 'crypto';
+import { Prisma } from '@prisma/client';
+
+interface BindDeviceItem {
+  deviceId: string;
+  activatedAt: string;
+  lastActiveAt: string;
+}
 
 @Injectable()
 export class RegisterCodeService {
@@ -23,7 +30,7 @@ export class RegisterCodeService {
    */
   async findAll(page: number, limit: number, search?: string) {
     const skip = (page - 1) * limit;
-    const where: any = {};
+    const where: Prisma.RegisterCodeWhereInput = {};
 
     if (search) {
       where.code = { contains: search, mode: 'insensitive' };
@@ -41,11 +48,11 @@ export class RegisterCodeService {
 
     // 转换列表模型对齐前端展示
     const formattedList = list.map((item) => {
-      let devices = [];
+      let devices: BindDeviceItem[] = [];
       try {
         devices = typeof item.bindDevices === 'string'
           ? JSON.parse(item.bindDevices)
-          : (item.bindDevices as any[]) || [];
+          : (item.bindDevices as unknown as BindDeviceItem[]) || [];
       } catch (e) {
         devices = [];
       }
@@ -175,11 +182,11 @@ export class RegisterCodeService {
       throw new BadRequestException(`此注册码限制专用于应用: [${record.appName}]`);
     }
 
-    let devices: any[] = [];
+    let devices: BindDeviceItem[] = [];
     try {
       devices = typeof record.bindDevices === 'string'
         ? JSON.parse(record.bindDevices)
-        : (record.bindDevices as any[]) || [];
+        : (record.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       devices = [];
     }
@@ -235,7 +242,7 @@ export class RegisterCodeService {
       data: {
         activatedAt: updatedActivatedAt,
         expireTime: updatedExpireTime,
-        bindDevices: devices,
+        bindDevices: devices as unknown as Prisma.InputJsonValue,
         usedNum: updatedUsedNum,
         status: nextStatus,
       },
@@ -258,7 +265,7 @@ export class RegisterCodeService {
       throw new NotFoundException('该注册码不存在！');
     }
 
-    let updateData: any = {};
+    let updateData: Prisma.RegisterCodeUpdateInput = {};
     const nowStr = new Date().toLocaleDateString('zh-CN');
     const adjustmentLog = `[${nowStr}] 调整 ${minutes > 0 ? '+' : ''}${minutes}分钟 (原因: ${reason || '无'})`;
     const newRemark = record.remark ? `${record.remark} | ${adjustmentLog}` : adjustmentLog;

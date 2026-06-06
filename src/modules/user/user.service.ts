@@ -8,6 +8,8 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
+import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 @Injectable()
 export class UserService {
@@ -48,7 +50,7 @@ export class UserService {
    */
   async findAll(page: number, limit: number, search?: string) {
     const skip = (page - 1) * limit;
-    const where: any = {};
+    const where: Prisma.UserWhereInput = {};
 
     if (search) {
       where.OR = [
@@ -86,7 +88,7 @@ export class UserService {
   /**
    * 创建系统新用户
    */
-  async create(data: any) {
+  async create(data: CreateUserDto) {
     const existing = await this.prisma.user.findUnique({
       where: { username: data.username },
     });
@@ -118,13 +120,13 @@ export class UserService {
   /**
    * 更新用户信息
    */
-  async update(id: string, data: any) {
+  async update(id: string, data: UpdateUserDto) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException('该用户不存在！');
     }
 
-    const updateData: any = {
+    const updateData: Prisma.UserUncheckedUpdateInput = {
       nickname: data.nickname,
       email: data.email,
       roleId: data.roleId,
@@ -137,7 +139,10 @@ export class UserService {
     }
 
     // 去除 undefined 的项
-    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+    const cleanUpdateData = updateData as Record<string, any>;
+    Object.keys(cleanUpdateData).forEach(
+      (key) => cleanUpdateData[key] === undefined && delete cleanUpdateData[key],
+    );
 
     return this.prisma.user.update({
       where: { id },

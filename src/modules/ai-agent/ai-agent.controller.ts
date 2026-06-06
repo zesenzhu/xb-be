@@ -2,6 +2,12 @@ import { Controller, Post, Body, Sse, MessageEvent } from '@nestjs/common';
 import { AiAgentService } from './ai-agent.service';
 import { Observable, map } from 'rxjs';
 
+export interface ChatMessageInput {
+  role?: string;
+  sender?: string;
+  content: string;
+}
+
 @Controller('ai-agent')
 export class AiAgentController {
   constructor(private readonly aiAgentService: AiAgentService) {}
@@ -13,7 +19,7 @@ export class AiAgentController {
   @Post('chat-stream')
   @Sse('chat-stream')
   chatStream(
-    @Body() body: { model: string; messages: any[]; temperature: number },
+    @Body() body: { model: string; messages: ChatMessageInput[]; temperature: number },
   ): Observable<MessageEvent> {
     const { model, messages, temperature } = body;
     

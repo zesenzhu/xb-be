@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { Observable } from 'rxjs';
+import { ChatMessageInput } from './ai-agent.controller';
+
+interface ActiveToolCall {
+  id?: string;
+  name?: string;
+  arguments: string;
+}
 
 @Injectable()
 export class AiAgentService {
@@ -57,7 +64,7 @@ export class AiAgentService {
    */
   runChatStream(
     model: string,
-    messages: any[],
+    messages: ChatMessageInput[],
     temperature: number,
   ): Observable<any> {
     return new Observable((subscriber) => {
@@ -87,7 +94,7 @@ export class AiAgentService {
 
           // 格式化输入消息以符合 OpenAI 官方 API 格式
           const apiMessages = messages.map((m) => ({
-            role: m.role || m.sender,
+            role: (m.role || m.sender || 'user') as 'user' | 'assistant' | 'system',
             content: m.content || '',
           }));
 
@@ -96,21 +103,21 @@ export class AiAgentService {
           // 3. 调用 API (开启 stream: true)
           const stream = await openai.chat.completions.create({
             model: resolvedModel,
-            messages: apiMessages as any,
+            messages: apiMessages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
             temperature: temperature,
             tools: tools,
             tool_choice: 'auto',
             stream: true,
           });
 
-          let currentToolCalls: any[] = [];
+          let currentToolCalls: ActiveToolCall[] = [];
 
           for await (const chunk of stream) {
             const delta = chunk.choices[0]?.delta;
             if (!delta) continue;
 
             // 情况 A：处理思考链 (DeepSeek-R1 专属字段 reasoning_content)
-            const reasoning = (delta as any).reasoning_content;
+            const reasoning = (delta as unknown as { reasoning_content?: string }).reasoning_content;
             if (reasoning) {
               subscriber.next({ event: 'think', data: reasoning });
               continue;
@@ -187,12 +194,12 @@ export class AiAgentService {
                       type: 'function',
                       function: { name: tc.name, arguments: tc.arguments },
                     })),
-                  } as any,
+                  } as OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam,
                   {
                     role: 'tool',
                     tool_call_id: toolCall.id,
                     content: toolResult,
-                  } as any,
+                  } as OpenAI.Chat.Completions.ChatCompletionToolMessageParam,
                 ],
               });
 
