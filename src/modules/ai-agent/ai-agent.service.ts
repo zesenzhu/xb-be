@@ -25,6 +25,17 @@ export class AiAgentService {
       apiKey = process.env.DASHSCOPE_API_KEY;
       baseURL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
       this.logger.log(`[AI Factory] 路由至阿里通义千问大模型: ${model}`);
+    } else if (modelLower.startsWith('doubao') || modelLower.startsWith('ep-')) {
+      // 切换为火山引擎豆包大模型配置
+      apiKey = process.env.DOUBAO_API_KEY;
+      baseURL = process.env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
+      
+      // 火山引擎必须传推理接入点 ID。
+      // 如果前端传入类似 "doubao-pro" 标识，自动映射至环境变量配置的 Endpoint
+      if (modelLower.startsWith('doubao')) {
+        resolvedModel = process.env.DOUBAO_MODEL_ENDPOINT || model;
+      }
+      this.logger.log(`[AI Factory] 路由至火山引擎豆包大模型: ${model} -> 物理模型接入点: ${resolvedModel}`);
     } else {
       this.logger.log(`[AI Factory] 路由至 DeepSeek 官方大模型: ${model}`);
     }
