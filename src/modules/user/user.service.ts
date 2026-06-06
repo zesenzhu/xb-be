@@ -104,6 +104,7 @@ export class UserService {
         username: data.username,
         password: hashedPassword,
         nickname: data.nickname,
+        email: data.email || null,
         avatar: data.avatar || null,
         status: data.status !== undefined ? Number(data.status) : 1,
         roleId: data.roleId,
@@ -125,6 +126,7 @@ export class UserService {
 
     const updateData: any = {
       nickname: data.nickname,
+      email: data.email,
       roleId: data.roleId,
       status: data.status !== undefined ? Number(data.status) : undefined,
     };
