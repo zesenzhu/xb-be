@@ -34,7 +34,7 @@ export async function seedDatabase(prisma: PrismaClient) {
     { name: '物理删除注册码', code: 'regcode:delete', description: '允许删除激活码数据' },
     { name: '查看设备日志', code: 'log:list', description: '允许接入实时日志长连接与检索' },
     { name: '监控设备列表', code: 'device:list', description: '允许查看端侧设备在线/离线拓扑' },
-    { name: '调度AI Agent', code: 'ai:config', description: '允许配置 AI 提示词与一键发送自然语言任务指令' }
+    { name: '调度AI Agent', code: 'ai:list', description: '允许配置 AI 提示词与一键发送自然语言任务指令' }
   ];
 
   console.log(`[Seed] 正在注入 ${permissionsData.length} 个核心系统权限码...`);
