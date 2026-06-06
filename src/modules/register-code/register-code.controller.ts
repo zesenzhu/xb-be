@@ -1,8 +1,8 @@
 /**
  * @file: register-code.controller.ts
- * @description: 注册激活码控制层。提供后台管理员对设备注册码的查询、批量生成与状态管理接口。
+ * @description: 注册激活码控制层。提供后台管理员对设备注册码的查询、按规则批量制卡、时长微调与设备物理解绑。
  * @author: Antigravity AI
- * @date: 2026-06-03
+ * @date: 2026-06-06
  */
 
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, HttpCode } from '@nestjs/common';
@@ -39,9 +39,18 @@ export class RegisterCodeController {
    */
   @Post('generate')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: '批量生成激活码', description: '在数据库中自动批量随机生成以 SEC- 开头的授权激活码。' })
+  @ApiOperation({ summary: '批量生成激活码', description: '在数据库中自动批量随机生成以卡种为前缀的授权激活码。' })
   @ApiResponse({ status: 201, description: '批量生成成功' })
-  async generateCodes(@Body() body: any) {
+  async generateCodes(
+    @Body() body: {
+      count: number;
+      maxActivations: number;
+      appName?: string;
+      cardType: string;
+      durationMinutes: number;
+      remark?: string;
+    }
+  ) {
     return this.registerCodeService.generate(body);
   }
 
@@ -62,11 +71,54 @@ export class RegisterCodeController {
   }
 
   /**
-   * 4. 物理删除/作废回收激活码
+   * 4. 剩余使用时长微调接口（方案一）
+   */
+  @Patch(':id/adjust-time')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '调整激活码剩余有效时间', description: '支持正负数，加减激活码的截止日期，并记录原因' })
+  @ApiResponse({ status: 200, description: '微调时间成功' })
+  @ApiResponse({ status: 404, description: '激活码不存在' })
+  async adjustTime(
+    @Param('id') id: string,
+    @Body() body: { adjustMinutes: number; reason: string },
+  ) {
+    const updated = await this.registerCodeService.adjustDuration(id, body.adjustMinutes, body.reason);
+    return {
+      success: true,
+      message: `已成功微调时长 ${body.adjustMinutes} 分钟！`,
+      data: {
+        expireTime: updated.expireTime,
+        remark: updated.remark,
+      }
+    };
+  }
+
+  /**
+   * 5. 强行解绑当前注册码上的全部设备
+   */
+  @Patch(':id/unbind')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '强行解绑该卡所有设备', description: '清空已绑定设备，重置usedNum，断开其长连接' })
+  @ApiResponse({ status: 200, description: '解绑成功' })
+  @ApiResponse({ status: 404, description: '激活码不存在' })
+  async unbindDevices(@Param('id') id: string) {
+    const updated = await this.registerCodeService.unbindDevice(id);
+    return {
+      success: true,
+      message: '该注册码已成功清除所有设备绑定！',
+      data: {
+        usedNum: updated.usedNum,
+        bindDevices: updated.bindDevices,
+      }
+    };
+  }
+
+  /**
+   * 6. 物理删除/作废回收激活码
    */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '作废/回收激活码', description: '物理从系统中废除并删除该注册码，其绑定的设备将立刻丢失授权。' })
+  @ApiOperation({ summary: '作废/回收激活码', description: '物理从系统中废除并删除该注册码，其绑定的设备将立刻丢失授权并踢下线。' })
   @ApiResponse({ status: 200, description: '删除作废成功' })
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async deleteCode(@Param('id') id: string) {

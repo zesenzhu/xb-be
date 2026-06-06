@@ -18,6 +18,7 @@ import { PrismaClient } from '@prisma/client';
 import { seedDatabase } from '../prisma/seed';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { apiReference } from '@scalar/nestjs-api-reference';
 
 async function bootstrap() {
   // 1. 初始化 NestJS 服务实例
@@ -58,12 +59,26 @@ async function bootstrap() {
     )
     .build();
 
-  const documentFactory = () => SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, documentFactory, {
-    swaggerOptions: {
-      persistAuthorization: true, // 刷新页面后依然保持 Bearer 鉴权状态
-    },
-  });
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (!isProduction) {
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true, // 刷新页面后依然保持 Bearer 鉴权状态
+      },
+    });
+
+    // ⚡ 集成并挂载 Scalar 现代交互文档参考页面
+    app.use(
+      '/api/reference',
+      apiReference({
+        theme: 'purple',
+        spec: {
+          content: document,
+        },
+      }),
+    );
+  }
 
   // 5. 自动静默播种初始数据 (完美穿透 WASM 虚拟本地库的物理连接屏障)
   const prismaOptions: any = {};
@@ -96,6 +111,9 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`[NestJS] 🚀 智能后端服务成功拉起！`);
   console.log(`[NestJS] 🔗 联调服务地址: http://localhost:${port}/api`);
-  console.log(`[NestJS] 📖 交互 Swagger 文档已托管在: http://localhost:${port}/api/docs`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[NestJS] 📖 交互 Swagger 文档已托管在: http://localhost:${port}/api/docs`);
+    console.log(`[NestJS] 🚀 Scalar 接口文档已托管在: http://localhost:${port}/api/reference`);
+  }
 }
 bootstrap();

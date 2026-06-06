@@ -35,6 +35,7 @@
     "@nestjs/swagger": "^11.4.4",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@scalar/nestjs-api-reference": "^1.1.20",
     "bcrypt": "^6.0.0",
     "bull": "^4.16.5",
     "class-transformer": "^0.5.1",
@@ -43,6 +44,7 @@
     "express": "^5.2.1",
     "ioredis": "^5.11.0",
     "mqtt": "^5.15.1",
+    "openai": "^6.42.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.21.0",
@@ -112,4 +114,3 @@
     ]
   }
 }
-

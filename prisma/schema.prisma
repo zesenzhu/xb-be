@@ -58,24 +58,32 @@ model Permission {
 // ==========================================
 
 model RegisterCode {
-  id           String      @id @default(uuid())
-  code         String      @unique // 注册码文本
-  expireTime   DateTime    @map("expire_time") // 有效期截止时间
-  maxActive    Int         @default(1) @map("max_active") // 该卡最大允许同时绑定的设备数
-  usedNum      Int         @default(0) @map("used_num") // 当前已绑定的设备数
-  status       Int         @default(1) // 状态：1-正常可用，0-禁用，2-已过期，3-设备数已满
+  id              String      @id @default(uuid())
+  code            String      @unique // 注册码文本
+  appName         String?     @map("app_name") // 绑定的应用名称；为 null 表示“通用型注册码”
+  cardType        String      @default("YK") @map("card_type") // 卡片种类，例如: WK(周卡), YK(月卡), NK(年卡), YJ(永久卡)
+  durationMinutes Int         @default(43200) @map("duration_minutes") // 该卡初始有效时长 (分钟)，默认 30 天
+  
+  activatedAt     DateTime?   @map("activated_at") // 首次激活时间 (首次登录时写入)
+  expireTime      DateTime?   @map("expire_time") // 有效期截止时间 (激活后计算)
+  
+  maxActive       Int         @default(1) @map("max_active") // 该卡最大允许同时绑定的设备数
+  usedNum         Int         @default(0) @map("used_num") // 当前已绑定的设备数
+  status          Int         @default(1) // 状态：1-正常可用/未激活，2-使用中，0-禁用，3-已过期，4-设备数已满
   
   // 绑定设备详情：存储设备ID、激活时间、IP等。
   // 格式如：[{"deviceId": "DEV001", "activatedAt": "2026-06-02T12:00:00Z"}]
-  bindDevices  Json        @default("[]") @map("bind_devices")
+  bindDevices     Json        @default("[]") @map("bind_devices")
   
   // 权限细分：该卡允许客户端调用哪些 API 接口或脚本功能
   // 格式如：["script:run", "api:data:fetch"]
-  allowedApis  Json        @default("[]") @map("allowed_apis")
+  allowedApis     Json        @default("[]") @map("allowed_apis")
   
-  logs         ScriptLog[]
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  remark          String?     // 管理员备注
+  
+  logs            ScriptLog[]
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
 
   @@map("register_code")
 }

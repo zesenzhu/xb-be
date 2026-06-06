@@ -8,6 +8,7 @@ import { ScriptLogModule } from './modules/script-log/script-log.module';
 import { MqttModule } from './modules/mqtt/mqtt.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
+import { TcpSocketModule } from './modules/tcp-socket/tcp-socket.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
     ScriptLogModule,
     MqttModule,
     AiAgentModule,
+    TcpSocketModule,
   ],
   controllers: [AppController],
   providers: [AppService],

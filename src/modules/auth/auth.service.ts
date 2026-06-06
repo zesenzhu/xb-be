@@ -72,7 +72,27 @@ export class AuthService {
     }
 
     const now = new Date();
-    if (regCode.expireTime < now) {
+    
+    // 首次激活初始化时间
+    let updatedActivatedAt = regCode.activatedAt;
+    let updatedExpireTime = regCode.expireTime;
+    
+    if (!regCode.activatedAt) {
+      updatedActivatedAt = now;
+      if (regCode.cardType === 'YJ') {
+        updatedExpireTime = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
+      } else {
+        updatedExpireTime = new Date(now.getTime() + regCode.durationMinutes * 60 * 1000);
+      }
+    }
+
+    if (updatedExpireTime && now > updatedExpireTime) {
+      if (regCode.status !== 3) {
+        await this.prisma.registerCode.update({
+          where: { id: regCode.id },
+          data: { status: 3 },
+        });
+      }
       throw new BadRequestException('该激活码已过期失效');
     }
 
@@ -113,13 +133,17 @@ export class AuthService {
         userAgent: userAgent || 'unknown',
       });
 
+      const nextStatus = devices.length >= regCode.maxActive ? 4 : 2;
+
       // 回写数据库
       await this.prisma.registerCode.update({
         where: { id: regCode.id },
         data: {
+          activatedAt: updatedActivatedAt,
+          expireTime: updatedExpireTime,
           bindDevices: devices,
           usedNum: devices.length,
-          status: devices.length >= regCode.maxActive ? 3 : 1, // 若设备满了则状态置为 3 (设备数已满)
+          status: nextStatus,
         },
       });
     }

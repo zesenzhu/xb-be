@@ -26,6 +26,7 @@ services:
     restart: always
     ports:
       - "${BACKEND_PORT:-8081}:8081"
+      - "8082:8082"
     environment:
       DATABASE_URL: "postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgrespassword}@db:5432/${DB_NAME:-xbnest}?sslmode=disable"
       PORT: 8081
