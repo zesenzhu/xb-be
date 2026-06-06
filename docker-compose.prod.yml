@@ -17,6 +17,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - xbnest-net
 
   backend:
     image: ${BACKEND_IMAGE:-ghcr.io/zesenzhu/xb-be:latest}
@@ -30,6 +32,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - xbnest-net
+
+networks:
+  xbnest-net:
+    external: true
 
 volumes:
   pgdata_prod:

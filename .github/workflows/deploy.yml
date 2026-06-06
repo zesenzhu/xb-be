@@ -96,6 +96,8 @@ jobs:
             set -e
             mkdir -p /www/wwwroot/xbnest/backend
             cd /www/wwwroot/xbnest/backend
+            # 物理自动校验并静默组建外部 Docker 共享网络以打通隔离屏障
+            docker network inspect xbnest-net >/dev/null 2>&1 || docker network create xbnest-net
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
             docker image prune -f
