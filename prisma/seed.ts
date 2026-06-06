@@ -28,10 +28,10 @@ export async function seedDatabase(prisma: PrismaClient) {
     { name: '删除用户', code: 'user:delete', description: '允许物理删除账户' },
     { name: '查询角色列表', code: 'role:list', description: '允许查看RBAC角色配置' },
     { name: '配置角色权限', code: 'role:update', description: '允许编辑角色绑定的权限码数组' },
-    { name: '查询注册码', code: 'regcode:list', description: '允许查询授权激活码的状态' },
-    { name: '批量生成注册码', code: 'regcode:create', description: '允许批量生成设备授权激活卡' },
-    { name: '编辑注册码限制', code: 'regcode:update', description: '允许禁用激活码、调整QPS流控阈值' },
-    { name: '物理删除注册码', code: 'regcode:delete', description: '允许删除激活码数据' },
+    { name: '查询注册码', code: 'code:list', description: '允许查询授权激活码的状态' },
+    { name: '批量生成注册码', code: 'code:create', description: '允许批量生成设备授权激活卡' },
+    { name: '编辑注册码限制', code: 'code:update', description: '允许禁用激活码、调整QPS流控阈值' },
+    { name: '物理删除注册码', code: 'code:delete', description: '允许删除激活码数据' },
     { name: '查看设备日志', code: 'log:list', description: '允许接入实时日志长连接与检索' },
     { name: '监控设备列表', code: 'device:list', description: '允许查看端侧设备在线/离线拓扑' },
     { name: '调度AI Agent', code: 'ai:list', description: '允许配置 AI 提示词与一键发送自然语言任务指令' }
@@ -71,7 +71,7 @@ export async function seedDatabase(prisma: PrismaClient) {
   });
 
   const operatorPermissions = permissions.filter(
-    p => !['role:update', 'user:delete', 'regcode:delete'].includes(p.code)
+    p => !['role:update', 'user:delete', 'code:delete'].includes(p.code)
   );
 
   const operatorRole = await prisma.role.upsert({
