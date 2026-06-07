@@ -9,12 +9,14 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TcpSocketService } from './tcp-socket.service';
 import { RegisterCodeModule } from '../register-code/register-code.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { TcpSimulatorController } from './tcp-simulator.controller';
 
 @Module({
   imports: [
     PrismaModule,
     forwardRef(() => RegisterCodeModule),
   ],
+  controllers: [TcpSimulatorController],
   providers: [TcpSocketService],
   exports: [TcpSocketService],
 })

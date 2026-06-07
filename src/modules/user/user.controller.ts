@@ -8,7 +8,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpStatus, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { UserService } from './user.service';
-import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateUserDto, UpdateUserDto, UpdateRolePermissionsDto } from './dto/user.dto';
 
 @ApiTags('User 用户管理')
 @Controller('users')
@@ -81,5 +81,30 @@ export class UserController {
   async deleteUser(@Param('id') id: string) {
     await this.userService.delete(id);
     return { success: true, message: '用户已成功注销删除！' };
+  }
+
+  /**
+   * 6. 获取所有可用角色及其权限映射详情
+   */
+  @Get('roles/detail')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取角色详情及其权限码', description: '用于角色权限管理控制台加载全量角色及绑定关系。' })
+  @ApiResponse({ status: 200, description: '查询成功' })
+  async getRolesDetail() {
+    return this.userService.getRolesWithPermissions();
+  }
+
+  /**
+   * 7. 保存角色绑定的权限列表
+   */
+  @Put('roles/:id/permissions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '保存角色的权限配置', description: '为指定角色重新覆盖配置其绑定的细粒度系统权限码列表。' })
+  @ApiResponse({ status: 200, description: '更新成功' })
+  async updateRolePermissions(
+    @Param('id') id: string,
+    @Body() body: UpdateRolePermissionsDto,
+  ) {
+    return this.userService.updateRolePermissions(id, body.permissionCodes);
   }
 }

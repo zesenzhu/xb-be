@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsEmail, IsOptional, MinLength, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsEmail, IsOptional, MinLength, IsNumber, Min, Max, IsArray } from 'class-validator';
 
 export class CreateUserDto {
   @ApiProperty({ description: '登录用户名', example: 'zhangsan' })
@@ -69,4 +69,11 @@ export class UpdateUserDto {
   @IsOptional()
   @MinLength(6, { message: '密码长度不能小于 6 位' })
   password?: string;
+}
+
+export class UpdateRolePermissionsDto {
+  @ApiProperty({ description: '要绑定的权限 code 列表', example: ['user:list', 'code:list'] })
+  @IsArray({ message: '权限列表必须是数组' })
+  @IsString({ each: true, message: '权限 code 必须是字符串' })
+  permissionCodes: string[];
 }

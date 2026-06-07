@@ -182,4 +182,56 @@ export class UserService {
       },
     });
   }
+
+  /**
+   * 获取所有系统可用角色列表（带关联权限详情）
+   */
+  async getRolesWithPermissions() {
+    const roles = await this.prisma.role.findMany({
+      include: {
+        permissions: {
+          select: {
+            code: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
+    // 格式化输出为前端期待的 RoleItem 结构（将 permissions 扁平化为 string[]）
+    return roles.map((role) => ({
+      id: role.id,
+      name: role.name,
+      code: role.name === '超级管理员' ? 'admin' : role.name === '运营人员' ? 'operator' : 'tester', // 映射 role.code
+      description: role.description || '',
+      permissions: role.permissions.map((p) => p.code),
+    }));
+  }
+
+  /**
+   * 更新特定角色的权限绑定 (Prisma 多对多关系物理覆盖)
+   */
+  async updateRolePermissions(roleId: string, permissionCodes: string[]) {
+    // 1. 查询这些权限 Code 对应的权限实体
+    const permissions = await this.prisma.permission.findMany({
+      where: {
+        code: { in: permissionCodes },
+      },
+    });
+
+    // 2. 物理重设多对多关联
+    return this.prisma.role.update({
+      where: { id: roleId },
+      data: {
+        permissions: {
+          set: permissions.map((p) => ({ id: p.id })),
+        },
+      },
+      include: {
+        permissions: true,
+      },
+    });
+  }
 }
