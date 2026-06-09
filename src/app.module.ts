@@ -9,6 +9,7 @@ import { MqttModule } from './modules/mqtt/mqtt.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { TcpSocketModule } from './modules/tcp-socket/tcp-socket.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -20,8 +21,10 @@ import { TcpSocketModule } from './modules/tcp-socket/tcp-socket.module';
     MqttModule,
     AiAgentModule,
     TcpSocketModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule {}
+

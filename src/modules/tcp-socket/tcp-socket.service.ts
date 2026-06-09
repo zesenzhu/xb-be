@@ -321,4 +321,33 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       this.logStreamViewers.delete(deviceId);
     }
   }
+
+  /**
+   * 获取当前内存中活跃的 TCP 连接总数
+   */
+  public getActiveConnectionsCount(): number {
+    return this.activeConnections.size;
+  }
+
+  /**
+   * 判定指定设备当前是否在线
+   */
+  public isDeviceOnline(deviceId: string): boolean {
+    return this.activeConnections.has(deviceId);
+  }
+
+  /**
+   * 获取在线设备的远程 IP 地址
+   */
+  public getDeviceRemoteIp(deviceId: string): string {
+    const conn = this.activeConnections.get(deviceId);
+    if (!conn || !conn.socket) return '';
+    let ip = conn.socket.remoteAddress || '';
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.substring(7);
+    }
+    return ip;
+  }
 }
+
+

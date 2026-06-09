@@ -5,9 +5,23 @@
  * @date: 2026-06-06
  */
 
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, HttpCode, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { RegisterCodeService } from './register-code.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { IsNotEmpty, IsString } from 'class-validator';
+
+export class VerifyRegisterCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @IsString()
+  @IsNotEmpty()
+  deviceId: string;
+}
+
+
 
 @ApiTags('RegisterCode 注册码管理')
 @Controller('register-codes')
@@ -19,19 +33,47 @@ export class RegisterCodeController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '分页获取激活注册码列表', description: '支持通过激活码文本模糊查询。' })
+  @ApiOperation({ summary: '分页获取激活注册码列表', description: '支持通过激活码、应用名、卡种、设备ID、状态及过期时间过滤。' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认 1' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页条数，默认 10' })
   @ApiQuery({ name: 'code', required: false, type: String, description: '激活码模糊过滤' })
+  @ApiQuery({ name: 'appName', required: false, type: String, description: '应用名称过滤，general 表示通用型' })
+  @ApiQuery({ name: 'cardType', required: false, type: String, description: '卡种类型过滤' })
+  @ApiQuery({ name: 'deviceId', required: false, type: String, description: '绑定物理设备ID过滤' })
+  @ApiQuery({ name: 'status', required: false, type: String, description: '激活码状态' })
+  @ApiQuery({ name: 'isEnabled', required: false, type: String, description: '是否启用 (true/false)' })
+  @ApiQuery({ name: 'expireStart', required: false, type: String, description: '到期时间起' })
+  @ApiQuery({ name: 'expireEnd', required: false, type: String, description: '到期时间止' })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getList(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('code') code?: string,
+    @Query('appName') appName?: string,
+    @Query('cardType') cardType?: string,
+    @Query('deviceId') deviceId?: string,
+    @Query('status') status?: string,
+    @Query('isEnabled') isEnabled?: string,
+    @Query('expireStart') expireStart?: string,
+    @Query('expireEnd') expireEnd?: string,
   ) {
     const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
     const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 10;
-    return this.registerCodeService.findAll(pageNum, limitNum, code);
+    
+    let isEnabledBool: boolean | undefined;
+    if (isEnabled === 'true') isEnabledBool = true;
+    if (isEnabled === 'false') isEnabledBool = false;
+
+    return this.registerCodeService.findAll(pageNum, limitNum, {
+      code,
+      appName,
+      cardType,
+      deviceId,
+      status,
+      expireStart,
+      expireEnd,
+      isEnabled: isEnabledBool,
+    });
   }
 
   /**
@@ -125,4 +167,70 @@ export class RegisterCodeController {
     await this.registerCodeService.delete(id);
     return { success: true, message: '该激活码已成功作废并回收！' };
   }
+
+  /**
+   * 7. 获取当前注册码绑定的物理设备列表 (供用户端大屏拉取)
+   */
+  @Get('my-devices')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取注册码绑定的物理设备列表', description: '供用户端大屏通过激活码文本拉取自己的绑定设备及实时在线状态。' })
+  @ApiResponse({ status: 200, description: '成功获取设备列表' })
+  async getMyDevices(@Query('code') code: string) {
+    if (!code) {
+      throw new BadRequestException('参数 code 不能为空');
+    }
+    return this.registerCodeService.findBoundDevices(code);
+  }
+
+  /**
+   * 8. 导入老系统激活码表格数据并实现覆盖式更新(Upsert)
+   */
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: '导入并覆盖式同步存量激活码', description: '上传老系统导出的 xls 格式数据，在内存中直接解构解析，并完成 Upsert 逻辑。' })
+  @ApiResponse({ status: 200, description: '成功执行存量导入' })
+  async importCodes(@UploadedFile() file: any) {
+    if (!file || !file.buffer) {
+      throw new BadRequestException('请选择有效的 Excel 注册码导出文件！');
+    }
+    return this.registerCodeService.importBoundCodes(file.buffer);
+  }
+
+  /**
+   * 9. 查询卡密操作变更日志列表
+   */
+  @Get('action-logs')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '分页查询卡密变更审计日志', description: '获取后台管理员对激活码执行的批量制卡、微调、启用禁用、解绑和注销日志' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认 1' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页条数，默认 10' })
+  @ApiQuery({ name: 'code', required: false, type: String, description: '激活卡密过滤' })
+  @ApiQuery({ name: 'actionType', required: false, type: String, description: '操作类型过滤 (GENERATE/ADJUST/ENABLE/DISABLE/UNBIND/DELETE)' })
+  @ApiResponse({ status: 200, description: '成功获取日志' })
+  async getActionLogs(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('code') code?: string,
+    @Query('actionType') actionType?: string,
+  ) {
+    const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
+    const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 10;
+    return this.registerCodeService.findActionLogs(pageNum, limitNum, { code, actionType });
+  }
+
+  /**
+   * 10. 卡密与设备自动绑定验证接口 (客户端脚本调用)
+   */
+  @Post('verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '客户端卡密授权及自动绑定验证', description: '客户端脚本专用。若为新设备且名额未满自动执行绑定，已绑定设备直接通过。' })
+  @ApiResponse({ status: 200, description: '验证或绑定成功' })
+  async verifyCode(
+    @Body() body: VerifyRegisterCodeDto
+  ) {
+    return this.registerCodeService.verifyCode(body.code, body.deviceId);
+  }
 }
+
+

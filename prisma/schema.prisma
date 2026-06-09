@@ -76,6 +76,9 @@ model RegisterCode {
   // 格式如：[{"deviceId": "DEV001", "activatedAt": "2026-06-02T12:00:00Z"}]
   bindDevices     Json        @default("[]") @map("bind_devices")
   
+  // 物理设备绑定关系
+  boundDevices    RegisterCodeDevice[]
+  
   // 权限细分：该卡允许客户端调用哪些 API 接口或脚本功能
   // 格式如：["script:run", "api:data:fetch"]
   allowedApis     Json        @default("[]") @map("allowed_apis")
@@ -87,6 +90,23 @@ model RegisterCode {
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
   @@map("register_code")
+}
+
+// ==========================================
+// 2.1 注册码物理设备绑定白名单
+// ==========================================
+
+model RegisterCodeDevice {
+  id             String        @id @default(uuid())
+  registerCodeId String        @map("register_code_id")
+  deviceId       String        @map("device_id")
+  boundAt        DateTime      @default(now()) @map("bound_at")
+  
+  registerCode   RegisterCode  @relation(fields: [registerCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([registerCodeId, deviceId])
+  @@index([deviceId])
+  @@map("register_code_device")
 }
 
 // ==========================================
@@ -135,4 +155,17 @@ model AiAgentConfig {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("ai_agent_config")
+}
+
+model RegisterCodeLog {
+  id          String   @id @default(uuid())
+  code        String   // 注册码卡密文本
+  actionType  String   @map("action_type") // 操作类型：GENERATE, ADJUST, ENABLE, DISABLE, UNBIND, DELETE
+  description String   @db.Text // 详细变更描述
+  operator    String   @default("admin") // 操作管理员
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([code])
+  @@index([createdAt])
+  @@map("register_code_log")
 }

@@ -76,6 +76,8 @@ export class AuthService {
     // 首次激活初始化时间
     let updatedActivatedAt = regCode.activatedAt;
     let updatedExpireTime = regCode.expireTime;
+    let nextStatus = regCode.status;
+    let needUpdate = false;
     
     if (!regCode.activatedAt) {
       updatedActivatedAt = now;
@@ -84,6 +86,8 @@ export class AuthService {
       } else {
         updatedExpireTime = new Date(now.getTime() + regCode.durationMinutes * 60 * 1000);
       }
+      nextStatus = 2; // 首次激活置为使用中 (2)
+      needUpdate = true;
     }
 
     if (updatedExpireTime && now > updatedExpireTime) {
@@ -96,60 +100,28 @@ export class AuthService {
       throw new BadRequestException('该激活码已过期失效');
     }
 
-    // 3. 解析绑定的设备列表 JSON 数组
-    let devices: any[] = [];
-    try {
-      devices = typeof regCode.bindDevices === 'string'
-        ? JSON.parse(regCode.bindDevices)
-        : (regCode.bindDevices as any[]) || [];
-    } catch (e) {
-      devices = [];
-    }
-
-    // 4. 定位或分配唯一设备 ID
-    let finalDeviceId = clientDeviceId ? clientDeviceId.trim() : '';
-    let isAlreadyBound = false;
-
-    if (finalDeviceId) {
-      // 如果前端传入了 deviceId，查询是否已被此卡绑定
-      isAlreadyBound = devices.some(d => d.deviceId === finalDeviceId);
-    } else {
-      // 如果前端未传 deviceId，则生成一个新的 web-client 虚拟 ID
-      finalDeviceId = `web-client-${randomUUID().slice(0, 8)}`;
-    }
-
-    // 5. 若未绑定过，尝试进行物理新设备绑定
-    if (!isAlreadyBound) {
-      // 校检设备上限
-      if (regCode.usedNum >= regCode.maxActive) {
-        throw new BadRequestException(`激活失败！该授权码允许绑定的设备数已满 (最大 ${regCode.maxActive} 台)`);
-      }
-
-      // 新增绑定记录
-      devices.push({
-        deviceId: finalDeviceId,
-        activatedAt: new Date().toISOString(),
-        ip: ip || 'unknown',
-        userAgent: userAgent || 'unknown',
-      });
-
-      const nextStatus = devices.length >= regCode.maxActive ? 4 : 2;
-
-      // 回写数据库
+    // 回写首次激活的数据，但不记录设备绑定
+    if (needUpdate) {
       await this.prisma.registerCode.update({
         where: { id: regCode.id },
         data: {
           activatedAt: updatedActivatedAt,
           expireTime: updatedExpireTime,
-          bindDevices: devices,
-          usedNum: devices.length,
           status: nextStatus,
         },
       });
     }
 
+    // 大屏用户端登录，分配一个虚拟 web 终端 ID，但绝不写入 bindDevices (不占绑定上限名额)
+    const finalDeviceId = clientDeviceId ? clientDeviceId.trim() : 'web-client';
+
     return {
-      regCode,
+      regCode: {
+        ...regCode,
+        activatedAt: updatedActivatedAt,
+        expireTime: updatedExpireTime,
+        status: nextStatus,
+      },
       deviceId: finalDeviceId,
     };
   }
@@ -213,11 +185,22 @@ export class AuthService {
    * @param type 物理通道类型
    */
   clearCookies(res: Response, type: 'admin' | 'user') {
+    const isProduction = process.env.NODE_ENV === 'production';
     const accessCookieName = type === 'admin' ? 'access_token' : 'user_access_token';
     const refreshCookieName = type === 'admin' ? 'refresh_token' : 'user_refresh_token';
 
-    res.clearCookie(accessCookieName, { path: '/' });
-    res.clearCookie(refreshCookieName, { path: '/' });
+    res.clearCookie(accessCookieName, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+    });
+    res.clearCookie(refreshCookieName, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+    });
   }
 
   /**
