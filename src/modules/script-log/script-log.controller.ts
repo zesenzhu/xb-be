@@ -5,7 +5,16 @@
  * @date: 2026-06-06
  */
 
-import { Controller, Get, Sse, MessageEvent, Query, HttpStatus, HttpCode, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Sse,
+  MessageEvent,
+  Query,
+  HttpStatus,
+  HttpCode,
+  BadRequestException,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
@@ -25,7 +34,10 @@ export class ScriptLogController {
    * 1. 网页端实时订阅日志流 (SSE 通道)
    */
   @Sse('stream')
-  @ApiOperation({ summary: '实时日志推送流 (SSE)', description: '网页端订阅特定设备实时日志。连入触发上报，断连释放。' })
+  @ApiOperation({
+    summary: '实时日志推送流 (SSE)',
+    description: '网页端订阅特定设备实时日志。连入触发上报，断连释放。',
+  })
   streamLogs(
     @Query('deviceId') deviceId: string,
     @Query('code') code: string,
@@ -40,9 +52,12 @@ export class ScriptLogController {
     return this.tcpSocketService.logBroadcaster$.pipe(
       // 过滤：仅输出此设备的日志且和对应的注册码匹配
       filter((event) => event.deviceId === deviceId),
-      map((event) => ({
-        data: event.log,
-      } as MessageEvent)),
+      map(
+        (event) =>
+          ({
+            data: event.log,
+          }) as MessageEvent,
+      ),
       // 断开连接时自动清理：通知设备停止上报
       finalize(() => {
         this.tcpSocketService.removeViewer(deviceId);
@@ -55,7 +70,10 @@ export class ScriptLogController {
    */
   @Get('history')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '查询历史日志列表', description: '支持按设备ID、注册码ID、日志级别进行分页查询。' })
+  @ApiOperation({
+    summary: '查询历史日志列表',
+    description: '支持按设备ID、注册码ID、日志级别进行分页查询。',
+  })
   async getHistory(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
