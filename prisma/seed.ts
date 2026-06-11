@@ -151,6 +151,7 @@ export async function seedDatabase(prisma: PrismaClient) {
   const seedCodes = [
     {
       code: 'XB-TEST-888888',
+      source: 'CREATE',
       maxActive: 3,
       usedNum: 0,
       status: 1,
@@ -159,6 +160,7 @@ export async function seedDatabase(prisma: PrismaClient) {
     },
     {
       code: 'XB-VIP-999999',
+      source: 'CREATE',
       maxActive: 10,
       usedNum: 0,
       status: 1,
@@ -171,12 +173,14 @@ export async function seedDatabase(prisma: PrismaClient) {
     await prisma.registerCode.upsert({
       where: { code: item.code },
       update: {
+        source: item.source,
         expireTime: item.expireTime,
         maxActive: item.maxActive,
         allowedApis: item.allowedApis
       },
       create: {
         code: item.code,
+        source: item.source,
         expireTime: item.expireTime,
         maxActive: item.maxActive,
         usedNum: item.usedNum,

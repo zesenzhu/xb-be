@@ -61,6 +61,7 @@ model Permission {
 model RegisterCode {
   id              String      @id @default(uuid())
   code            String      @unique // 注册码文本
+  source          String      @default("CREATE") // 激活码来源，"CREATE" 为自建，"IMPORT" 为导入
   appName         String?     @map("app_name") // 绑定的应用名称；为 null 表示“通用型注册码”
   cardType        String      @default("YK") @map("card_type") // 卡片种类，例如: WK(周卡), YK(月卡), NK(年卡), YJ(永久卡)
   durationMinutes Int         @default(43200) @map("duration_minutes") // 该卡初始有效时长 (分钟)，默认 30 天

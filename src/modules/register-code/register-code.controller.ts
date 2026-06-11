@@ -42,6 +42,7 @@ export class RegisterCodeController {
   @ApiQuery({ name: 'deviceId', required: false, type: String, description: '绑定物理设备ID过滤' })
   @ApiQuery({ name: 'status', required: false, type: String, description: '激活码状态' })
   @ApiQuery({ name: 'isEnabled', required: false, type: String, description: '是否启用 (true/false)' })
+  @ApiQuery({ name: 'source', required: false, type: String, description: '激活码来源 (CREATE/IMPORT)' })
   @ApiQuery({ name: 'expireStart', required: false, type: String, description: '到期时间起' })
   @ApiQuery({ name: 'expireEnd', required: false, type: String, description: '到期时间止' })
   @ApiResponse({ status: 200, description: '查询成功' })
@@ -54,6 +55,7 @@ export class RegisterCodeController {
     @Query('deviceId') deviceId?: string,
     @Query('status') status?: string,
     @Query('isEnabled') isEnabled?: string,
+    @Query('source') source?: string,
     @Query('expireStart') expireStart?: string,
     @Query('expireEnd') expireEnd?: string,
   ) {
@@ -73,6 +75,7 @@ export class RegisterCodeController {
       expireStart,
       expireEnd,
       isEnabled: isEnabledBool,
+      source,
     });
   }
 
@@ -165,7 +168,48 @@ export class RegisterCodeController {
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async deleteCode(@Param('id') id: string) {
     await this.registerCodeService.delete(id);
-    return { success: true, message: '该激活码已成功作废并回收！' };
+  }
+
+  /**
+   * 批量更新注册码启用状态
+   */
+  @Patch('batch-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '批量更新激活码状态', description: '支持批量启用或批量禁用激活码。' })
+  @ApiResponse({ status: 200, description: '批量更新成功' })
+  async batchUpdateStatus(
+    @Body() body: { ids: string[]; status: 'active' | 'disabled' },
+  ) {
+    const res = await this.registerCodeService.batchUpdateStatus(body.ids, body.status);
+    return { success: true, message: `成功更新了 ${res.count} 个激活码的状态！` };
+  }
+
+  /**
+   * 批量微调注册码时长
+   */
+  @Patch('batch-adjust-time')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '批量微调激活码有效时间', description: '批量调整选中非永久卡的有效到期时间（支持正负值调整）。' })
+  @ApiResponse({ status: 200, description: '批量微调成功' })
+  async batchAdjustTime(
+    @Body() body: { ids: string[]; adjustMinutes: number; reason: string },
+  ) {
+    const res = await this.registerCodeService.batchAdjustDuration(body.ids, body.adjustMinutes, body.reason);
+    return { success: true, message: `成功调整了 ${res.count} 个激活码的时长！` };
+  }
+
+  /**
+   * 批量物理注销激活码
+   */
+  @Post('batch-delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '批量物理作废激活码', description: '从系统中批量物理删除激活码，并踢下线其所绑定的设备。' })
+  @ApiResponse({ status: 200, description: '批量删除成功' })
+  async batchDelete(
+    @Body() body: { ids: string[] },
+  ) {
+    const res = await this.registerCodeService.batchDelete(body.ids);
+    return { success: true, message: `成功注销了 ${res.count} 个激活码！` };
   }
 
   /**

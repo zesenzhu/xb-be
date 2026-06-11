@@ -39,9 +39,14 @@ export class RegisterCodeService {
     expireStart?: string;
     expireEnd?: string;
     isEnabled?: boolean;
+    source?: string;
   }) {
     const skip = (page - 1) * limit;
     const where: Prisma.RegisterCodeWhereInput = {};
+
+    if (options?.source) {
+      where.source = options.source;
+    }
 
     if (options?.code) {
       where.code = { contains: options.code, mode: 'insensitive' };
@@ -103,7 +108,10 @@ export class RegisterCodeService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [
+          { createdAt: 'desc' },
+          { id: 'desc' }
+        ],
       }),
       this.prisma.registerCode.count({ where }),
     ]);
@@ -210,6 +218,7 @@ export class RegisterCodeService {
           bindDevices: '[]',
           allowedApis: JSON.stringify(['api:data:fetch', 'script:run']),
           remark,
+          source: 'CREATE',
         },
       });
 
@@ -646,6 +655,7 @@ export class RegisterCodeService {
         usedNum: 0,
         bindDevices: '[]',
         allowedApis: JSON.stringify(['api:data:fetch', 'script:run']),
+        source: 'IMPORT',
       });
     }
 
@@ -703,6 +713,7 @@ export class RegisterCodeService {
               activatedAt: item.activatedAt,
               expireTime: item.expireTime,
               remark: `${item.remark} [覆盖导入]`,
+              source: 'IMPORT',
             },
           })
         )
@@ -783,6 +794,189 @@ export class RegisterCodeService {
       })),
       total,
     };
+  }
+
+  /**
+   * 批量更新激活码启用状态
+   */
+  async batchUpdateStatus(ids: string[], status: 'active' | 'disabled') {
+    if (!ids || ids.length === 0) {
+      throw new BadRequestException('请选择至少一个激活码！');
+    }
+
+    const records = await this.prisma.registerCode.findMany({
+      where: { id: { in: ids } }
+    });
+
+    if (records.length === 0) {
+      throw new NotFoundException('未找到任何合规的激活码！');
+    }
+
+    const action = status === 'disabled' ? 'DISABLE' : 'ENABLE';
+    const actionDesc = status === 'disabled' ? '批量禁用注册码' : '批量启用注册码';
+
+    const updates = records.map((record) => {
+      let numericStatus = 1;
+      if (status === 'disabled') {
+        numericStatus = 0;
+      } else {
+        if (record.expireTime && new Date() > new Date(record.expireTime)) {
+          numericStatus = 3; // 过期
+        } else if (record.activatedAt) {
+          numericStatus = record.usedNum >= record.maxActive ? 4 : 2;
+        }
+      }
+
+      return this.prisma.registerCode.update({
+        where: { id: record.id },
+        data: { status: numericStatus },
+      });
+    });
+
+    await this.prisma.$transaction(updates);
+
+    // 记录审计日志
+    await Promise.all(
+      records.map((record) =>
+        this.recordActionLog(record.code, action, actionDesc)
+      )
+    );
+
+    return { success: true, count: records.length };
+  }
+
+  /**
+   * 批量微调激活码剩余有效时长
+   */
+  async batchAdjustDuration(ids: string[], minutes: number, reason: string) {
+    if (!ids || ids.length === 0) {
+      throw new BadRequestException('请选择至少一个激活码！');
+    }
+
+    const records = await this.prisma.registerCode.findMany({
+      where: { id: { in: ids } }
+    });
+
+    // 过滤掉永久卡 (YJ)
+    const validRecords = records.filter(r => r.cardType !== 'YJ');
+
+    if (validRecords.length === 0) {
+      return { success: true, count: 0, message: '选择的激活码中没有可调整时间的非永久卡。' };
+    }
+
+    const nowStr = new Date().toLocaleDateString('zh-CN');
+    const adjustmentLog = `[${nowStr}] 批量调整 ${minutes > 0 ? '+' : ''}${minutes}分钟 (原因: ${reason || '无'})`;
+
+    const updates = validRecords.map((record) => {
+      let updateData: Prisma.RegisterCodeUpdateInput = {};
+      const newRemark = record.remark ? `${record.remark} | ${adjustmentLog}` : adjustmentLog;
+
+      if (!record.activatedAt) {
+        // 尚未激活，直接调整初始可用时长
+        const nextDuration = Math.max(1, record.durationMinutes + minutes);
+        updateData = {
+          durationMinutes: nextDuration,
+          remark: newRemark,
+        };
+      } else {
+        // 已激活，加减截止时间 expireTime
+        const currentExpireTime = record.expireTime ? new Date(record.expireTime) : new Date();
+        const nextExpireTime = new Date(currentExpireTime.getTime() + minutes * 60 * 1000);
+
+        // 判断调整后是否过期
+        const isExpired = new Date() > nextExpireTime;
+        let nextStatus = record.status;
+        if (isExpired) {
+          nextStatus = 3; // 已过期
+        } else {
+          // 如果原本是过期状态，恢复为正常使用/满载
+          if (record.status === 3) {
+            nextStatus = record.usedNum >= record.maxActive ? 4 : 2;
+          }
+        }
+
+        updateData = {
+          expireTime: nextExpireTime,
+          status: nextStatus,
+          remark: newRemark,
+        };
+      }
+
+      return this.prisma.registerCode.update({
+        where: { id: record.id },
+        data: updateData,
+      });
+    });
+
+    await this.prisma.$transaction(updates);
+
+    // 记录审计日志
+    await Promise.all(
+      validRecords.map((record) =>
+        this.recordActionLog(record.code, 'ADJUST', `批量微调时长 ${minutes > 0 ? '+' : ''}${minutes}分钟。原因: ${reason || '无'}`)
+      )
+    );
+
+    return { success: true, count: validRecords.length };
+  }
+
+  /**
+   * 批量物理注销作废激活码
+   */
+  async batchDelete(ids: string[]) {
+    if (!ids || ids.length === 0) {
+      throw new BadRequestException('请选择至少一个激活码！');
+    }
+
+    const records = await this.prisma.registerCode.findMany({
+      where: { id: { in: ids } }
+    });
+
+    if (records.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    // 收集所有需要踢线的设备ID
+    const deviceIdsToKick = new Set<string>();
+    for (const record of records) {
+      let devices = [];
+      try {
+        devices = typeof record.bindDevices === 'string'
+          ? JSON.parse(record.bindDevices)
+          : (record.bindDevices as any[]) || [];
+      } catch (e) {
+        devices = [];
+      }
+      for (const dev of devices) {
+        if (dev.deviceId) {
+          deviceIdsToKick.add(dev.deviceId);
+        }
+      }
+    }
+
+    // 强制踢线
+    for (const devId of deviceIdsToKick) {
+      this.tcpSocketService.forceKickDevice(devId);
+    }
+
+    // 事务删除关联表与主表
+    await this.prisma.$transaction([
+      this.prisma.registerCodeDevice.deleteMany({
+        where: { registerCodeId: { in: ids } }
+      }),
+      this.prisma.registerCode.deleteMany({
+        where: { id: { in: ids } }
+      })
+    ]);
+
+    // 记录审计日志
+    await Promise.all(
+      records.map((record) =>
+        this.recordActionLog(record.code, 'DELETE', '批量物理注销作废该卡密')
+      )
+    );
+
+    return { success: true, count: records.length };
   }
 
   /**
