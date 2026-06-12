@@ -10,6 +10,9 @@ import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { TcpSocketModule } from './modules/tcp-socket/tcp-socket.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DebugModule } from './modules/debug/debug.module';
+import { UploadModule } from './modules/upload/upload.module';
+import { SystemSettingModule } from './modules/system-setting/system-setting.module';
 
 @Module({
   imports: [
@@ -22,6 +25,9 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     AiAgentModule,
     TcpSocketModule,
     DashboardModule,
+    DebugModule,
+    UploadModule,
+    SystemSettingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

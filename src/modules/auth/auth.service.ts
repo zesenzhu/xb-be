@@ -11,6 +11,8 @@ import { UserService } from '../user/user.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Response } from 'express';
 import { randomUUID } from 'crypto';
+import { MailService } from './mail.service';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
@@ -21,6 +23,7 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
   ) {}
 
   /**
@@ -217,5 +220,96 @@ export class AuthService {
     } catch (e) {
       throw new UnauthorizedException('刷新令牌无效或已过期，请重新登录');
     }
+  }
+
+  /**
+   * 7. 发送忘记密码验证码
+   */
+  async sendForgotPasswordCode(email: string) {
+    // 1. 安全前检：该邮箱在 sys_user 中是否存在
+    const user = await this.prisma.user.findFirst({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new BadRequestException('该邮箱未注册或未绑定任何管理员账户');
+    }
+
+    // 2. 检查系统设置中 mail_enabled 开关是否开启
+    const mailEnabledSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'mail_enabled' },
+    });
+    if (mailEnabledSetting?.value !== 'true') {
+      throw new BadRequestException('系统邮件服务已关闭，请联系系统管理员手动重置密码！');
+    }
+
+    // 3. 生成 6 位随机验证码
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expireTime = new Date(Date.now() + 10 * 60 * 1000); // 10分钟后过期
+
+    // 4. 存入 EmailVerifyCode 数据库表
+    await this.prisma.emailVerifyCode.create({
+      data: {
+        email,
+        code,
+        expireTime,
+      },
+    });
+
+    // 5. 投递验证码 (带有 Log Fallback 机制)
+    const isSentReal = await this.mailService.sendVerificationCode(email, code);
+
+    return {
+      success: true,
+      message: isSentReal
+        ? '验证码已发送至您的注册邮箱，请注意查收！'
+        : '验证码已发送成功（开发模式：验证码已在控制台输出）',
+    };
+  }
+
+  /**
+   * 8. 凭借验证码重置密码
+   */
+  async resetPasswordByCode(email: string, code: string, newPass: string) {
+    // 1. 查询匹配的验证码 (最晚创建、未过期、未使用过的)
+    const verifyRecord = await this.prisma.emailVerifyCode.findFirst({
+      where: {
+        email,
+        code,
+        used: false,
+        expireTime: {
+          gt: new Date(), // 未过期
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    if (!verifyRecord) {
+      throw new BadRequestException('验证码无效、错误或已过期，请重新获取！');
+    }
+
+    // 2. 标记验证码已使用
+    await this.prisma.emailVerifyCode.update({
+      where: { id: verifyRecord.id },
+      data: { used: true },
+    });
+
+    // 3. bcrypt 哈希新密码并更新管理员账户
+    const hashed = await bcrypt.hash(newPass, 10);
+    
+    // 查找邮箱对应的所有用户并更新密码
+    await this.prisma.user.updateMany({
+      where: { email },
+      data: {
+        password: hashed,
+      },
+    });
+
+    return {
+      success: true,
+      message: '您的管理员账号密码重置成功，请使用新密码重新登录！',
+    };
   }
 }

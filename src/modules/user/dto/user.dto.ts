@@ -77,3 +77,33 @@ export class UpdateRolePermissionsDto {
   @IsString({ each: true, message: '权限 code 必须是字符串' })
   permissionCodes: string[];
 }
+
+export class UpdateProfileDto {
+  @ApiPropertyOptional({ description: '用户昵称', example: '张三' })
+  @IsString({ message: '昵称必须是字符串' })
+  @IsOptional()
+  nickname?: string;
+
+  @ApiPropertyOptional({ description: '电子邮箱', example: 'zhangsan@xbnest.com' })
+  @IsEmail({}, { message: '邮箱格式不正确' })
+  @IsOptional()
+  email?: string;
+
+  @ApiPropertyOptional({ description: '头像地址', example: 'https://example.com/avatar.png' })
+  @IsString({ message: '头像地址必须是字符串' })
+  @IsOptional()
+  avatar?: string;
+}
+
+export class UpdatePasswordDto {
+  @ApiProperty({ description: '旧的登录密码', example: 'old_password_123' })
+  @IsString({ message: '旧密码必须是字符串' })
+  @IsNotEmpty({ message: '旧密码不能为空' })
+  oldPassword: string;
+
+  @ApiProperty({ description: '新的登录密码', minLength: 6, example: 'new_password_123' })
+  @IsString({ message: '新密码必须是字符串' })
+  @IsNotEmpty({ message: '新密码不能为空' })
+  @MinLength(6, { message: '新密码长度不能小于 6 位' })
+  newPassword: string;
+}

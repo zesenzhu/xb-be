@@ -5,10 +5,40 @@
  * @date: 2026-06-03
  */
 
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpStatus, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  HttpStatus,
+  HttpCode,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Request } from 'express';
 import { UserService } from './user.service';
-import { CreateUserDto, UpdateUserDto, UpdateRolePermissionsDto } from './dto/user.dto';
+import {
+  CreateUserDto,
+  UpdateUserDto,
+  UpdateRolePermissionsDto,
+  UpdateProfileDto,
+  UpdatePasswordDto,
+} from './dto/user.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    role: string;
+    sub: string;
+    username: string;
+  };
+}
+
 
 @ApiTags('User 用户管理')
 @Controller('users')
@@ -107,4 +137,65 @@ export class UserController {
   ) {
     return this.userService.updateRolePermissions(id, body.permissionCodes);
   }
+
+  /**
+   * 8. 获取当前登录用户的个人中心资料 (包含角色及详细权限码)
+   */
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '获取当前登录用户的资料',
+    description:
+      '基于 Cookie 或 Auth Header 中的 JWT 令牌自动解析用户 ID，返回包括角色与详细系统权限码的个人基本资料。',
+  })
+  @ApiResponse({ status: 200, description: '获取成功' })
+  async getProfile(@Req() req: AuthenticatedRequest) {
+    const userId = req.user.sub;
+    return this.userService.getProfile(userId);
+  }
+
+  /**
+   * 9. 更新当前登录用户的个人资料 (支持昵称、邮箱、头像)
+   */
+  @Put('me')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '修改个人资料',
+    description: '只允许修改当前登录账号的昵称、邮箱和头像链接，防止越权修改。',
+  })
+  @ApiResponse({ status: 200, description: '更新成功' })
+  async updateProfile(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: UpdateProfileDto,
+  ) {
+    const userId = req.user.sub;
+    return this.userService.updateProfile(userId, body);
+  }
+
+  /**
+   * 10. 安全修改当前登录用户的账号密码
+   */
+  @Put('me/password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '安全修改账户密码',
+    description: '需要输入旧密码进行二次校验，校验成功后允许更新为新密码。',
+  })
+  @ApiResponse({ status: 200, description: '修改成功' })
+  @ApiResponse({ status: 400, description: '旧密码校验失败' })
+  async updatePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: UpdatePasswordDto,
+  ) {
+    const userId = req.user.sub;
+    return this.userService.updatePassword(
+      userId,
+      body.oldPassword,
+      body.newPassword,
+    );
+  }
 }
+

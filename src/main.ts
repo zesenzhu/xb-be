@@ -20,10 +20,17 @@ import { seedDatabase } from '../prisma/seed';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { apiReference } from '@scalar/nestjs-api-reference';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 
 async function bootstrap() {
-  // 1. 初始化 NestJS 服务实例
-  const app = await NestFactory.create(AppModule);
+  // 1. 初始化 NestJS 服务实例并支持 Express 特有的静态资源托管
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // 1.5 挂载本地物理静态资源目录
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads',
+  });
 
   // 2. 开启统一物理路由前缀 /api，与前端 lib/axios.ts 设定的 http://localhost:8081/api 保持一致
   app.setGlobalPrefix('api');

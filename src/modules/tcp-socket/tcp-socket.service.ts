@@ -17,7 +17,19 @@ interface ClientConnection {
   codeId: string;
   deviceId: string;
   appName?: string;
+  deviceInfo?: {
+    name: string;
+    model: string;
+    os: string;
+    osVersion: string;
+    resolution: string;
+    dpi: number;
+    isRoot: number;
+    battery: number;
+    ip: string;
+  };
 }
+
 
 @Injectable()
 export class TcpSocketService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -150,7 +162,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
    */
   private async processMessage(socket: net.Socket, rawMessage: string, setDeviceId: (id: string) => void) {
     const data = JSON.parse(rawMessage);
-    const { action, code, deviceId, appName } = data;
+    const { action, code, deviceId, appName, deviceInfo } = data;
 
     if (!action) {
       socket.write(JSON.stringify({ status: 'error', message: 'Missing action field' }) + '\n');
@@ -166,7 +178,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
       try {
         // 调用注册码服务尝试登录激活
-        const authResult = await this.registerCodeService.activateCode(code, deviceId, appName);
+        const authResult = await this.registerCodeService.activateCode(code, deviceId, appName, deviceInfo);
         
         // 绑定设备标识至本地 socket 钩子
         setDeviceId(deviceId);
@@ -178,6 +190,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           codeId: authResult.codeId,
           deviceId,
           appName,
+          deviceInfo,
         });
 
         this.logger.log(`客户端设备通过 TCP 鉴权成功: [${deviceId}] 注册码 [${code}]`);
@@ -218,6 +231,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     // 2. 心跳机制
     if (action === 'ping') {
+      if (connection.deviceInfo && data.battery !== undefined) {
+        connection.deviceInfo.battery = Number(data.battery);
+      }
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
       return;
     }
@@ -348,6 +364,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     }
     return ip;
   }
+
+  /**
+   * 获取在线设备的连接与详细信息
+   */
+  public getActiveConnection(deviceId: string): ClientConnection | undefined {
+    return this.activeConnections.get(deviceId);
+  }
 }
+
 
 

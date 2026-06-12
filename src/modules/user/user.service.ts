@@ -234,4 +234,91 @@ export class UserService {
       },
     });
   }
+
+  /**
+   * 8. 获取当前登录用户的 Profile 详情 (含角色权限码)
+   */
+  async getProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        role: {
+          include: {
+            permissions: {
+              select: {
+                code: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('当前登录用户不存在');
+    }
+
+    const safeUser = { ...user };
+    safeUser.password = ''; // 置空防泄露且避开未定义警告
+    const permissions = user.role?.permissions.map((p) => p.code) || [];
+
+    return {
+      ...safeUser,
+      permissions,
+    };
+  }
+
+  /**
+   * 9. 更新用户基本资料 (昵称, 邮箱, 头像)
+   */
+  async updateProfile(userId: string, data: { nickname?: string; email?: string; avatar?: string }) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('当前登录用户不存在');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        nickname: data.nickname,
+        email: data.email,
+        avatar: data.avatar,
+      },
+      include: {
+        role: true,
+      },
+    });
+
+    const safeUser = { ...updated };
+    safeUser.password = ''; // 置空防泄露
+    return safeUser;
+  }
+
+  /**
+   * 10. 修改用户账户密码 (需要旧密码二次安全验证)
+   */
+  async updatePassword(userId: string, oldPass: string, newPass: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('当前登录用户不存在');
+    }
+
+    const isMatch = await this.comparePassword(oldPass, user.password);
+    if (!isMatch) {
+      throw new BadRequestException('您的旧密码验证失败，请重新确认！');
+    }
+
+    const hashed = await bcrypt.hash(newPass, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hashed,
+      },
+    });
+
+    return {
+      success: true,
+      message: '您的账户密码已修改成功，请妥善保管！',
+    };
+  }
 }

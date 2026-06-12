@@ -213,6 +213,17 @@ export class RegisterCodeController {
   }
 
   /**
+   * 7.1 获取所有注册码绑定的物理设备列表 (供管理员大屏拉取)
+   */
+  @Get('all-devices')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '管理员获取所有注册码绑定的物理设备列表', description: '供后台管理员大屏拉取全局设备及实时在线状态。' })
+  @ApiResponse({ status: 200, description: '成功获取设备列表' })
+  async getAllDevices() {
+    return this.registerCodeService.findAllBoundDevices();
+  }
+
+  /**
    * 7. 获取当前注册码绑定的物理设备列表 (供用户端大屏拉取)
    */
   @Get('my-devices')

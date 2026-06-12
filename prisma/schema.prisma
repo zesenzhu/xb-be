@@ -170,3 +170,31 @@ model RegisterCodeLog {
   @@index([createdAt])
   @@map("register_code_log")
 }
+
+// ==========================================
+// 5. 系统设置与动态变量管理
+// ==========================================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique // 例如: "mail_enabled", "smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from"
+  value       String   @db.Text
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("sys_setting")
+}
+
+model EmailVerifyCode {
+  id         String   @id @default(uuid())
+  email      String   // 目标邮箱
+  code       String   // 验证码字符 (6位数字)
+  used       Boolean  @default(false)
+  expireTime DateTime @map("expire_time")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("sys_email_verify_code")
+  @@index([email])
+}
+

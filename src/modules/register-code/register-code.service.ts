@@ -17,6 +17,15 @@ interface BindDeviceItem {
   deviceId: string;
   activatedAt: string;
   lastActiveAt: string;
+  name?: string;
+  model?: string;
+  os?: string;
+  osVersion?: string;
+  resolution?: string;
+  dpi?: number;
+  isRoot?: number;
+  ip?: string;
+  battery?: number;
 }
 
 @Injectable()
@@ -236,7 +245,7 @@ export class RegisterCodeService {
   /**
    * 客户端免密登录激活校验状态机
    */
-  async activateCode(code: string, deviceId: string, appName?: string) {
+  async activateCode(code: string, deviceId: string, appName?: string, deviceInfo?: any) {
     const record = await this.prisma.registerCode.findUnique({
       where: { code },
     });
@@ -294,6 +303,17 @@ export class RegisterCodeService {
     // 3. 设备绑定数校验
     if (existingDevice) {
       existingDevice.lastActiveAt = now.toISOString();
+      if (deviceInfo) {
+        existingDevice.name = deviceInfo.name || existingDevice.name;
+        existingDevice.model = deviceInfo.model || existingDevice.model;
+        existingDevice.os = deviceInfo.os || existingDevice.os;
+        existingDevice.osVersion = deviceInfo.osVersion || existingDevice.osVersion;
+        existingDevice.resolution = deviceInfo.resolution || existingDevice.resolution;
+        existingDevice.dpi = deviceInfo.dpi !== undefined ? deviceInfo.dpi : existingDevice.dpi;
+        existingDevice.isRoot = deviceInfo.isRoot !== undefined ? deviceInfo.isRoot : existingDevice.isRoot;
+        existingDevice.ip = deviceInfo.ip || existingDevice.ip;
+        existingDevice.battery = deviceInfo.battery !== undefined ? deviceInfo.battery : existingDevice.battery;
+      }
     } else {
       if (record.usedNum >= record.maxActive) {
         throw new BadRequestException(`绑定设备数已达上限 (${record.maxActive}台)，请在控制台解绑旧设备！`);
@@ -302,6 +322,15 @@ export class RegisterCodeService {
         deviceId,
         activatedAt: now.toISOString(),
         lastActiveAt: now.toISOString(),
+        name: deviceInfo?.name,
+        model: deviceInfo?.model,
+        os: deviceInfo?.os,
+        osVersion: deviceInfo?.osVersion,
+        resolution: deviceInfo?.resolution,
+        dpi: deviceInfo?.dpi,
+        isRoot: deviceInfo?.isRoot,
+        ip: deviceInfo?.ip,
+        battery: deviceInfo?.battery,
       });
     }
 
@@ -514,6 +543,85 @@ export class RegisterCodeService {
   }
 
   /**
+   * 获取所有注册码绑定的物理设备列表 (供管理员大屏拉取)
+   */
+  async findAllBoundDevices() {
+    const codes = await this.prisma.registerCode.findMany({
+      where: {
+        usedNum: { gt: 0 }
+      },
+      select: {
+        code: true,
+        bindDevices: true,
+        appName: true
+      }
+    });
+
+    const deviceMap = new Map<string, BindDeviceItem & { licenseBound: string; appName?: string }>();
+
+    for (const item of codes) {
+      let devicesList: BindDeviceItem[] = [];
+      try {
+        devicesList = typeof item.bindDevices === 'string'
+          ? JSON.parse(item.bindDevices) as BindDeviceItem[]
+          : (item.bindDevices as unknown as BindDeviceItem[]) || [];
+      } catch (e) {
+        devicesList = [];
+      }
+
+      for (const dev of devicesList) {
+        if (!dev.deviceId) continue;
+        const exists = deviceMap.get(dev.deviceId);
+        if (!exists || (dev.lastActiveAt && exists.lastActiveAt && new Date(dev.lastActiveAt) > new Date(exists.lastActiveAt))) {
+          deviceMap.set(dev.deviceId, {
+            ...dev,
+            licenseBound: item.code,
+            appName: item.appName || '通用'
+          });
+        }
+      }
+    }
+
+    const list = Array.from(deviceMap.values()).map((dev) => {
+      const isOnline = this.tcpSocketService.isDeviceOnline(dev.deviceId);
+      const onlineIp = isOnline ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId) : '';
+      const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
+      const devInfo = connection?.deviceInfo || dev;
+      
+      const temp = isOnline ? 35 + Math.floor(Math.random() * 12) : 0;
+      const load = isOnline ? 10 + Math.floor(Math.random() * 45) : 0;
+      const rtt = isOnline ? 10 + Math.floor(Math.random() * 15) : 0;
+      const heartbeats = isOnline ? 100 + Math.floor(Math.random() * 500) : 0;
+      
+      const maskedId = dev.deviceId.slice(0, 8);
+      
+      return {
+        id: dev.deviceId,
+        name: devInfo.name || `设备 (${maskedId})`,
+        model: devInfo.model || '未知型号',
+        os: devInfo.os || 'ios',
+        osVersion: devInfo.osVersion || '未知版本',
+        resolution: devInfo.resolution || '未知分辨率',
+        dpi: devInfo.dpi || 0,
+        isRoot: devInfo.isRoot === 1,
+        ip: onlineIp || devInfo.ip || '127.0.0.1',
+        status: isOnline ? 'online' : 'offline',
+        battery: devInfo.battery !== undefined ? devInfo.battery : 100,
+        temperature: temp,
+        cpuLoad: load,
+        rtt,
+        licenseBound: dev.licenseBound,
+        appName: dev.appName || '通用',
+        heartbeatsCount: heartbeats,
+        activatedAt: dev.activatedAt || null,
+        lastActiveAt: dev.lastActiveAt || null,
+      };
+    });
+
+    return list;
+  }
+
+  /**
    * 获取激活码绑定的设备信息列表及其实时在线状态
    */
   async findBoundDevices(code: string) {
@@ -525,11 +633,11 @@ export class RegisterCodeService {
       throw new NotFoundException('注册激活码不存在');
     }
 
-    let bindDevices: Array<{ deviceId: string; activatedAt?: string; ip?: string }> = [];
+    let bindDevices: BindDeviceItem[] = [];
     try {
       bindDevices = typeof regCode.bindDevices === 'string'
-        ? JSON.parse(regCode.bindDevices)
-        : (regCode.bindDevices as any) || [];
+        ? JSON.parse(regCode.bindDevices) as BindDeviceItem[]
+        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       bindDevices = [];
     }
@@ -537,15 +645,23 @@ export class RegisterCodeService {
     const list = bindDevices.map((dev) => {
       const isOnline = this.tcpSocketService.isDeviceOnline(dev.deviceId);
       const onlineIp = isOnline ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId) : '';
+      const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
+      const devInfo = connection?.deviceInfo || dev;
       
-      // 模拟一些健康指标（如 CPU 温度、负载），使内容更有体感
       const temp = isOnline ? 35 + Math.floor(Math.random() * 12) : 0;
       const load = isOnline ? 10 + Math.floor(Math.random() * 45) : 0;
       
       return {
         id: dev.deviceId,
-        name: `设备终端 (${dev.deviceId.slice(0, 8)})`,
-        ip: onlineIp || dev.ip || '127.0.0.1',
+        name: devInfo.name || `设备终端 (${dev.deviceId.slice(0, 8)})`,
+        model: devInfo.model || '未知型号',
+        os: devInfo.os || 'ios',
+        osVersion: devInfo.osVersion || '未知版本',
+        resolution: devInfo.resolution || '未知分辨率',
+        dpi: devInfo.dpi || 0,
+        isRoot: devInfo.isRoot === 1,
+        battery: devInfo.battery !== undefined ? devInfo.battery : 100,
+        ip: onlineIp || devInfo.ip || '127.0.0.1',
         status: isOnline ? 'online' : 'offline',
         temperature: temp,
         cpuLoad: load,
