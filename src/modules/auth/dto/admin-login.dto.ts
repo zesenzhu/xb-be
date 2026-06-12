@@ -10,13 +10,13 @@ import { IsNotEmpty, IsString, Length } from 'class-validator';
 
 export class AdminLoginDto {
   @ApiProperty({
-    description: '管理员用户名',
+    description: '管理员用户名或注册邮箱',
     example: 'admin',
     required: true,
   })
-  @IsNotEmpty({ message: '用户名不能为空' })
-  @IsString({ message: '用户名必须为字符串' })
-  @Length(2, 20, { message: '用户名长度需在 2 到 20 位之间' })
+  @IsNotEmpty({ message: '用户名或邮箱不能为空' })
+  @IsString({ message: '用户名或邮箱必须为字符串' })
+  @Length(2, 100, { message: '用户名或邮箱长度需在 2 到 100 位之间' })
   username: string;
 
   @ApiProperty({

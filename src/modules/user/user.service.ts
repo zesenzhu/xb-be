@@ -22,8 +22,10 @@ export class UserService {
    * @returns 用户信息、角色及其关联权限
    */
   async findByUsername(username: string) {
-    return this.prisma.user.findUnique({
-      where: { username },
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [{ username }, { email: username }],
+      },
       include: {
         role: {
           include: {
