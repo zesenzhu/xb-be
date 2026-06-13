@@ -675,6 +675,26 @@ export class RegisterCodeService {
   }
 
   /**
+   * 获取当前激活码的基础状态 (供用户端拉取)
+   */
+  async getCodeStatus(code: string) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('注册激活码不存在');
+    }
+
+    return {
+      code: regCode.code,
+      expireTime: regCode.expireTime,
+      maxActive: regCode.maxActive,
+      isEnabled: regCode.status !== 0,
+    };
+  }
+
+  /**
    * 导入老系统激活码表格数据并实现覆盖式更新(Upsert)
    */
   async importBoundCodes(fileBuffer: Buffer) {

@@ -238,6 +238,20 @@ export class RegisterCodeController {
   }
 
   /**
+   * 7.2 获取注册码基本状态 (供用户端大屏拉取，查看剩余时长与设备数)
+   */
+  @Get('my-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取激活码状态', description: '获取当前激活码的过期时间和基本配置。' })
+  @ApiResponse({ status: 200, description: '成功获取状态信息' })
+  async getMyStatus(@Query('code') code: string) {
+    if (!code) {
+      throw new BadRequestException('参数 code 不能为空');
+    }
+    return this.registerCodeService.getCodeStatus(code);
+  }
+
+  /**
    * 8. 导入老系统激活码表格数据并实现覆盖式更新(Upsert)
    */
   @Post('import')

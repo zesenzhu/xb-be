@@ -168,6 +168,7 @@ export class AuthController {
           code: 'client',
         },
         deviceId: deviceId, // 回传给前端
+        expireTime: regCode.expireTime,
       },
       permissions: parsedPermissions,
     };
