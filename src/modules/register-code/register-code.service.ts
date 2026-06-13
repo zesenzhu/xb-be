@@ -27,6 +27,9 @@ interface BindDeviceItem {
   ip?: string;
   battery?: number;
   diskSpace?: string;
+  cpuTemp?: number;
+  cpuLoad?: number;
+  rtt?: number;
 }
 
 @Injectable()
