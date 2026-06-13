@@ -300,6 +300,44 @@ export class RegisterCodeController {
   ) {
     return this.registerCodeService.verifyCode(body.code, body.deviceId);
   }
+
+  /**
+   * 获取卡密警报配置 (供大屏端或用户端展示)
+   */
+  @Get('my-alert')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取激活码警报配置', description: '供用户端大屏通过激活码拉取报警邮箱及订阅选项。' })
+  async getMyAlert(@Query('code') code: string) {
+    if (!code) {
+      throw new BadRequestException('参数 code 不能为空');
+    }
+    return this.registerCodeService.getAlertConfig(code);
+  }
+
+  /**
+   * 更新卡密警报配置 (供大屏端或用户端修改)
+   */
+  @Patch('my-alert')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '更新激活码警报配置', description: '更新报警接收邮箱及选择的订阅事件' })
+  async updateMyAlert(
+    @Body() body: { code: string; alertEmail: string; alertConfig: any }
+  ) {
+    if (!body.code) {
+      throw new BadRequestException('参数 code 不能为空');
+    }
+    return this.registerCodeService.updateAlertConfig(body.code, body.alertEmail, body.alertConfig);
+  }
+
+  /**
+   * 获取最近紧急警报历史 (供大屏端展示)
+   */
+  @Get('alerts')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取最近紧急警报历史', description: '供设备管理大屏拉取最近未优雅退出的紧急警报列表。' })
+  async getAlertHistory() {
+    return this.registerCodeService.getAlertHistory();
+  }
 }
 
 

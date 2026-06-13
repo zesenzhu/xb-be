@@ -10,6 +10,7 @@ import { RegisterCodeService } from '../register-code/register-code.service';
 import { PrismaService } from '../prisma/prisma.service';
 import * as net from 'net';
 import { Subject } from 'rxjs';
+import * as nodemailer from 'nodemailer';
 
 interface ClientConnection {
   socket: net.Socket;
@@ -18,6 +19,7 @@ interface ClientConnection {
   deviceId: string;
   appName?: string;
   pingCount?: number;
+  isExiting?: boolean; // 标记是否优雅退出 (OnScriptExit)
   deviceInfo?: {
     name: string;
     model: string;
@@ -28,10 +30,12 @@ interface ClientConnection {
     isRoot: number;
     battery: number;
     ip: string;
-    diskSpace?: string;
-    cpuTemp?: number;
-    cpuLoad?: number;
-    rtt?: number;
+    deviceType?: string;
+    frontApp?: string;
+    isLocked?: number;
+    vpnStatus?: number;
+    scriptMemory?: number;        // 脚本当前占用内存 (KB)
+    isSwitchingAccount?: number;  // 是否处于换号切号状态 (1: 是)
   };
 }
 
@@ -51,6 +55,30 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   // 记录当前活跃在网页端的全局监视授权码
   private readonly activeWebClients = new Set<string>();
 
+  // 内存中维护最近的紧急警报历史记录 (最多 200 条)
+  private readonly alertHistory: Array<{
+    id: string;
+    deviceId: string;
+    code: string;
+    appName?: string;
+    type: string;      // offline_unexpected | launcher_detect | device_locked | vpn_disconnect | error_log_report | out_of_memory
+    typeName: string;  // 中文事件类型名
+    message: string;
+    timestamp: Date;
+  }> = [];
+
+  // 退回桌面检测防抖定时器: deviceId -> timer
+  private readonly launcherTimers = new Map<string, NodeJS.Timeout>();
+
+  // 休眠锁屏检测防抖定时器: deviceId -> timer
+  private readonly lockedTimers = new Map<string, NodeJS.Timeout>();
+
+  // ERROR 级日志告警冷喷时间限制 (5 分钟): deviceId -> timestamp
+  private readonly lastErrorAlertTimes = new Map<string, number>();
+
+  // 内存溢出告警冷喷时间限制 (10 分钟): deviceId -> timestamp
+  private readonly lastMemoryAlertTimes = new Map<string, number>();
+
   // 全局的日志流广播 Subject，用于桥接 TCP 上报与 SSE 推送
   public readonly logBroadcaster$ = new Subject<{
     deviceId: string;
@@ -64,9 +92,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     };
   }>();
 
-  // 全局的设备状态广播 Subject，用于推送设备上线、下线、电量变化等事件到网页端
+  // 全局的设备状态广播 Subject，用于推送设备上线、下线、电量变化以及告警等事件到网页端
   public readonly deviceState$ = new Subject<{
-    type: 'device_list' | 'device_status';
+    type: 'device_list' | 'device_status' | 'device_alert';
     code: string;
     deviceId: string;
     payload: any;
@@ -175,7 +203,25 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
               deviceId,
             }
           });
+
+          // 意外下线判定：如果设备没有被标记为优雅退出且已经认证过，发送报警邮件
+          if (!conn.isExiting) {
+            this.handleUnexpectedOffline(conn).catch((err) => {
+              this.logger.error(`执行离线报警评估出错: ${deviceId}`, err);
+            });
+          }
         }
+
+        // 清理该设备名下的定时器，避免内存泄漏
+        if (this.launcherTimers.has(deviceId)) {
+          clearTimeout(this.launcherTimers.get(deviceId));
+          this.launcherTimers.delete(deviceId);
+        }
+        if (this.lockedTimers.has(deviceId)) {
+          clearTimeout(this.lockedTimers.get(deviceId));
+          this.lockedTimers.delete(deviceId);
+        }
+
         this.activeConnections.delete(deviceId);
         this.logStreamViewers.delete(deviceId);
       }
@@ -197,9 +243,11 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       appName?: string;
       deviceInfo?: ClientConnection['deviceInfo'];
       battery?: number;
-      cpuTemp?: number;
-      cpuLoad?: number;
-      rtt?: number;
+      frontApp?: string;
+      isLocked?: number;
+      vpnStatus?: number;
+      scriptMemory?: number;
+      isSwitchingAccount?: number;
       logs?: Array<{
         level: 'INFO' | 'WARN' | 'ERROR';
         module: string;
@@ -299,35 +347,123 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     if (action === 'ping') {
       connection.pingCount = (connection.pingCount || 0) + 1;
       
-      if (connection.deviceInfo) {
-        if (data.battery !== undefined) {
-          connection.deviceInfo.battery = Number(data.battery);
-        }
-        if (data.cpuTemp !== undefined) {
-          connection.deviceInfo.cpuTemp = Number(data.cpuTemp);
-        }
-        if (data.cpuLoad !== undefined) {
-          connection.deviceInfo.cpuLoad = Number(data.cpuLoad);
-        }
-        if (data.rtt !== undefined) {
-          connection.deviceInfo.rtt = Number(data.rtt);
-        }
+      if (!connection.deviceInfo) {
+        connection.deviceInfo = {
+          name: `设备 (${deviceId.slice(0, 8)})`,
+          model: '未知型号',
+          os: 'android',
+          osVersion: '未知版本',
+          resolution: '0x0',
+          dpi: 0,
+          isRoot: 0,
+          battery: 100,
+          ip: '0.0.0.0',
+        };
       }
+
+      // 备份旧状态，用于变化感知与报警判断
+      const oldVpnStatus = connection.deviceInfo.vpnStatus;
+      const oldFrontApp = connection.deviceInfo.frontApp;
+      const oldIsLocked = connection.deviceInfo.isLocked;
+
+      if (data.battery !== undefined) {
+        connection.deviceInfo.battery = Number(data.battery);
+      }
+      if (data.frontApp !== undefined) {
+        connection.deviceInfo.frontApp = String(data.frontApp);
+      }
+      if (data.isLocked !== undefined) {
+        connection.deviceInfo.isLocked = Number(data.isLocked);
+      }
+      if (data.vpnStatus !== undefined) {
+        connection.deviceInfo.vpnStatus = Number(data.vpnStatus);
+      }
+      if (data.scriptMemory !== undefined) {
+        (connection.deviceInfo as any).scriptMemory = Number(data.scriptMemory);
+      }
+      if (data.isSwitchingAccount !== undefined) {
+        (connection.deviceInfo as any).isSwitchingAccount = Number(data.isSwitchingAccount);
+      }
+
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
 
-      // 广播设备状态与真实硬件更新事件
+      const curFront = connection.deviceInfo.frontApp || '';
+      const curLocked = connection.deviceInfo.isLocked;
+      const curVpn = connection.deviceInfo.vpnStatus;
+      const isSwitching = (connection.deviceInfo as any).isSwitchingAccount === 1;
+
+      // 💡 2.1 退回桌面防抖检测 (60秒防抖且过滤切号状态)
+      const isLauncherPkg = (pkg: string) => {
+        const p = pkg.toLowerCase();
+        return p.includes('launcher') || p.includes('desktop') || p.includes('miui.home') || p === 'com.android.systemui';
+      };
+
+      if (isLauncherPkg(curFront) && !isSwitching) {
+        if (!this.launcherTimers.has(deviceId)) {
+          const timer = setTimeout(() => {
+            this.handleLauncherDetect(connection, curFront).catch((err) => {
+              this.logger.error(`执行桌面异常检测评估出错: ${deviceId}`, err);
+            });
+            this.launcherTimers.delete(deviceId);
+          }, 60000);
+          this.launcherTimers.set(deviceId, timer);
+        }
+      } else {
+        // 如果切回游戏或者标记为切号中，立即取消桌面异常防抖定时器
+        if (this.launcherTimers.has(deviceId)) {
+          clearTimeout(this.launcherTimers.get(deviceId));
+          this.launcherTimers.delete(deviceId);
+        }
+      }
+
+      // 💡 2.2 休眠锁屏防抖检测 (30秒防抖)
+      if (curLocked === 1) {
+        if (!this.lockedTimers.has(deviceId)) {
+          const timer = setTimeout(() => {
+            this.handleDeviceLocked(connection).catch((err) => {
+              this.logger.error(`执行锁屏检测评估出错: ${deviceId}`, err);
+            });
+            this.lockedTimers.delete(deviceId);
+          }, 30000);
+          this.lockedTimers.set(deviceId, timer);
+        }
+      } else {
+        // 解锁后立即清除定时器
+        if (this.lockedTimers.has(deviceId)) {
+          clearTimeout(this.lockedTimers.get(deviceId));
+          this.lockedTimers.delete(deviceId);
+        }
+      }
+
+      // 💡 2.3 代理 (VPN) 断开检测 (即时触发，过滤切号)
+      if (oldVpnStatus === 1 && curVpn === 0 && !isSwitching) {
+        this.handleVpnDisconnect(connection).catch((err) => {
+          this.logger.error(`执行代理断开评估出错: ${deviceId}`, err);
+        });
+      }
+
+      // 💡 2.4 脚本内存超限泄漏预警
+      if (data.scriptMemory !== undefined) {
+        this.handleOutOfMemory(connection, Number(data.scriptMemory)).catch((err) => {
+          this.logger.error(`执行内存超限评估出错: ${deviceId}`, err);
+        });
+      }
+
+      // 广播设备状态与真实硬件更新事件到网页前端
       this.deviceState$.next({
         type: 'device_status',
         code: connection.code,
         deviceId,
         payload: {
-          battery: connection.deviceInfo?.battery || 100,
-          cpuTemp: connection.deviceInfo?.cpuTemp || 0,
-          cpuLoad: connection.deviceInfo?.cpuLoad || 0,
-          rtt: connection.deviceInfo?.rtt || 0,
+          battery: connection.deviceInfo.battery || 100,
+          frontApp: curFront || 'unknown',
+          isLocked: curLocked === 1,
+          vpnStatus: curVpn === 1,
+          scriptMemory: (connection.deviceInfo as any).scriptMemory || 0,
+          isSwitchingAccount: isSwitching,
           status: 'online',
-          ip: this.getDeviceRemoteIp(deviceId)
-        }
+          ip: this.getDeviceRemoteIp(deviceId),
+        },
       });
       return;
     }
@@ -348,12 +484,22 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
             content: log.content || '',
           },
         });
+
+        // 💡 3.1 监听并评估 ERROR 日志告警 (含5分钟发信冷喷)
+        if (log.level === 'ERROR') {
+          this.handleErrorLogAlert(connection, log.content || '').catch((err) => {
+            this.logger.error(`执行ERROR日志报警评估出错: ${deviceId}`, err);
+          });
+        }
       }
       return;
     }
 
     // 4. 收尾日志归档保存 (写数据库，作为历史记录存档)
     if (action === 'exit_log') {
+      // 标记优雅退出，防止触发意外下线离线告警
+      connection.isExiting = true;
+
       const logsList = data.logs || [];
       if (logsList.length > 0) {
         this.logger.log(`接收到设备 [${deviceId}] 退出前归档日志，行数: ${logsList.length}`);
@@ -525,6 +671,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   /**
    * 网页端移出/取消全局长连接监视
    */
+  /**
+   * 网页端移出/取消全局长连接监视
+   */
   public removeWebClient(code: string) {
     this.activeWebClients.delete(code);
     // 找出该 code 下所有在线设备，通知其停止上报以省电
@@ -534,6 +683,345 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         conn.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
       }
     }
+  }
+
+  /**
+   * 内存中维护最近的紧急警报历史记录 (供前端大屏首次加载和实时推送)
+   */
+  public getAlertHistory() {
+    return this.alertHistory;
+  }
+
+  /**
+   * 异步发送邮件警报。受全局 `alert_mail_enabled` 控制。
+   */
+  private async sendAlertEmail(code: string, subject: string, html: string) {
+    try {
+      // 1. 查询系统开启状态
+      const alertEnabledSetting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'alert_mail_enabled' },
+      });
+      if (alertEnabledSetting?.value !== 'true') {
+        this.logger.warn(`[邮件警报降级] 全局邮件警报开关 alert_mail_enabled 未开启，跳过发信。主题: ${subject}`);
+        return;
+      }
+
+      // 2. 查询卡密绑定的接收邮箱
+      const regCode = await this.prisma.registerCode.findUnique({
+        where: { code },
+        select: { alertEmail: true },
+      });
+      const alertEmail = regCode?.alertEmail;
+      if (!alertEmail) {
+        this.logger.warn(`[邮件警报降级] 卡密 [${code}] 未配置警报接收邮箱 alertEmail，跳过发信。`);
+        return;
+      }
+
+      // 3. 查询发信 SMTP 凭证
+      const smtpSettings = await this.prisma.systemSetting.findMany({
+        where: {
+          key: {
+            in: ['mail_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from'],
+          },
+        },
+      });
+      const config: Record<string, string> = {};
+      smtpSettings.forEach((item) => {
+        config[item.key] = item.value;
+      });
+
+      const mailEnabled = config['mail_enabled'] === 'true';
+      const smtpHost = config['smtp_host'];
+      const smtpPort = config['smtp_port'];
+      const smtpUser = config['smtp_user'];
+      const smtpPass = config['smtp_pass'];
+      const smtpFrom = config['smtp_from'] || smtpUser;
+
+      if (!mailEnabled || !smtpHost || !smtpPort || !smtpUser || !smtpPass) {
+        this.logger.warn(`[邮件警报降级] SMTP 服务器配置未完善，跳过发信。`);
+        return;
+      }
+
+      // 4. 发信
+      const port = parseInt(smtpPort, 10) || 465;
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure: port === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+
+      // 支持分号或逗号分隔多个邮箱
+      const toEmails = alertEmail.split(/[;,]/).map((e) => e.trim()).filter(Boolean);
+      if (toEmails.length === 0) return;
+
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: toEmails,
+        subject,
+        html,
+      });
+      this.logger.log(`[SMTP] 警报邮件已成功投递至: ${toEmails.join(', ')}`);
+    } catch (err) {
+      this.logger.error(`[SMTP] 警报邮件投递异常:`, err);
+    }
+  }
+
+  /**
+   * 将警报保存至内存历史，并通过 SSE 广播到前端
+   */
+  private addAlertToHistory(conn: ClientConnection, type: string, typeName: string, message: string) {
+    const alertItem = {
+      id: Math.random().toString(36).slice(2, 9),
+      deviceId: conn.deviceId,
+      code: conn.code,
+      appName: conn.appName || '通用',
+      type,
+      typeName,
+      message,
+      timestamp: new Date(),
+    };
+
+    // 塞入历史
+    this.alertHistory.unshift(alertItem);
+    if (this.alertHistory.length > 200) {
+      this.alertHistory.pop();
+    }
+
+    // 广播给网页端 SSE
+    this.deviceState$.next({
+      type: 'device_alert' as any,
+      code: conn.code,
+      deviceId: conn.deviceId,
+      payload: alertItem,
+    });
+  }
+
+  // 1. 意外断开
+  private async handleUnexpectedOffline(conn: ClientConnection) {
+    // 检查订阅
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code: conn.code },
+      select: { alertConfig: true },
+    });
+    const config = (regCode?.alertConfig as any) || {};
+    if (config.offline === false) return; // 未订阅
+
+    const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
+    const message = `设备 [${name}] 连续超过 120 秒未响应心跳（或 TCP 连接在运行中异常中断），且下线前无 OnScriptExit() 优雅退出日志，判定为突发离线/死机异常。`;
+    
+    this.addAlertToHistory(conn, 'offline_unexpected', '设备意外离线', message);
+
+    const subject = `🔴 紧急警报：设备意外断线/死机 [${name}]`;
+    const html = `
+      <div style="padding: 24px; font-family: sans-serif; background-color: #fef2f2; color: #991b1b; border-radius: 8px; border: 1px solid #fee2e2;">
+        <h2 style="color: #dc2626; margin-bottom: 16px;">🔴 设备突发掉线或死机警告</h2>
+        <p style="font-size: 14px;">您的挂机设备因异常中断与服务器断开连接。详情如下：</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <tr><td style="padding: 6px; font-weight: bold; width: 100px;">激活码：</td><td style="padding: 6px; color: #111827;">${conn.code}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">设备名称：</td><td style="padding: 6px; color: #111827;">${name}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">设备ID：</td><td style="padding: 6px; color: #111827;">${conn.deviceId}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">应用包名：</td><td style="padding: 6px; color: #111827;">${conn.appName || '未记录'}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">告警原因：</td><td style="padding: 6px; color: #dc2626;">未收到正常停止指令即发生连接断开，疑似脚本或网络崩溃。</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">离线时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
+        </table>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">请前往云手机/模拟器后台排查网络连接或游戏软件运行状况。</p>
+      </div>
+    `;
+
+    await this.sendAlertEmail(conn.code, subject, html);
+  }
+
+  // 2. 退回桌面
+  private async handleLauncherDetect(conn: ClientConnection, frontApp: string) {
+    // 再次检查此时是否为切号或已经恢复，防止在防抖时间里切回
+    if (conn.deviceInfo?.isSwitchingAccount === 1) return;
+    const isLauncher = (pkg: string) => {
+      const p = pkg.toLowerCase();
+      return p.includes('launcher') || p.includes('desktop') || p.includes('miui.home') || p === 'com.android.systemui';
+    };
+    if (!isLauncher(conn.deviceInfo?.frontApp || '')) return;
+
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code: conn.code },
+      select: { alertConfig: true },
+    });
+    const config = (regCode?.alertConfig as any) || {};
+    if (config.launcher === false) return; // 未订阅
+
+    const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
+    const message = `警告：设备 [${name}] 的当前最前端应用变更为桌面启动器 [${frontApp}]，已在最前端停留超过 60 秒。判定为游戏意外闪退或强退到桌面。`;
+    
+    this.addAlertToHistory(conn, 'launcher_detect', '异常退回桌面', message);
+
+    const subject = `⚠️ 告警：设备异常闪退到桌面 [${name}]`;
+    const html = `
+      <div style="padding: 24px; font-family: sans-serif; background-color: #fffbeb; color: #92400e; border-radius: 8px; border: 1px solid #fef3c7;">
+        <h2 style="color: #d97706; margin-bottom: 16px;">⚠️ 挂机脚本闪退桌面警告</h2>
+        <p style="font-size: 14px;">您的挂机设备检测到已退出游戏界面。详情如下：</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <tr><td style="padding: 6px; font-weight: bold; width: 100px;">激活码：</td><td style="padding: 6px; color: #111827;">${conn.code}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">设备名称：</td><td style="padding: 6px; color: #111827;">${name}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">当前最前包名：</td><td style="padding: 6px; color: #dc2626; font-family: monospace;">${frontApp}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">告警原因：</td><td style="padding: 6px; color: #b45309;">异常退回到手机桌面，挂机可能已经中断。</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">上报时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
+        </table>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">若此行为正常游戏切换，请忽略此邮件或在后台微调配置。</p>
+      </div>
+    `;
+
+    await this.sendAlertEmail(conn.code, subject, html);
+  }
+
+  // 3. 休眠锁屏
+  private async handleDeviceLocked(conn: ClientConnection) {
+    if (conn.deviceInfo?.isLocked !== 1) return;
+
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code: conn.code },
+      select: { alertConfig: true },
+    });
+    const config = (regCode?.alertConfig as any) || {};
+    if (config.locked === false) return; // 未订阅
+
+    const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
+    const message = `警告：设备 [${name}] 检测到锁屏状态 (isLocked === 1) 持续超过 30 秒，可能导致点击与找图功能失效。`;
+    
+    this.addAlertToHistory(conn, 'device_locked', '设备休眠锁屏', message);
+
+    const subject = `🔒 警告：设备已被锁屏 [${name}]`;
+    const html = `
+      <div style="padding: 24px; font-family: sans-serif; background-color: #f1f5f9; color: #334155; border-radius: 8px; border: 1px solid #e2e8f0;">
+        <h2 style="color: #475569; margin-bottom: 16px;">🔒 设备锁屏状态警告</h2>
+        <p style="font-size: 14px;">挂机设备检测到已经处于黑屏/锁屏状态，会阻断大多数找图或按键操作。详情如下：</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <tr><td style="padding: 6px; font-weight: bold; width: 100px;">设备名称：</td><td style="padding: 6px; color: #111827;">${name}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">激活码：</td><td style="padding: 6px; color: #111827;">${conn.code}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">告警原因：</td><td style="padding: 6px; color: #475569;">屏幕锁屏，导致脚本无法在物理图层正常渲染和交互。</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
+        </table>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">建议关闭手机的“自动休眠”、“自动锁屏”选项。</p>
+      </div>
+    `;
+
+    await this.sendAlertEmail(conn.code, subject, html);
+  }
+
+  // 4. VPN 断开
+  private async handleVpnDisconnect(conn: ClientConnection) {
+    if (conn.deviceInfo?.isSwitchingAccount === 1) return; // 切号时不报
+
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code: conn.code },
+      select: { alertConfig: true },
+    });
+    const config = (regCode?.alertConfig as any) || {};
+    if (config.vpn === false) return; // 未订阅
+
+    const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
+    const message = `致命警告：设备 [${name}] 网络代理 (VPN) 已断开，当前回落为直连网络。存在封号关联风险，请注意防封！`;
+    
+    this.addAlertToHistory(conn, 'vpn_disconnect', '代理(VPN)断开', message);
+
+    const subject = `🛡️ 致命警告：代理(VPN)已断开 [${name}]`;
+    const html = `
+      <div style="padding: 24px; font-family: sans-serif; background-color: #fff1f2; color: #9f1239; border-radius: 8px; border: 1px solid #ffe4e6;">
+        <h2 style="color: #e11d48; margin-bottom: 16px;">🛡️ 致命告警：网络代理 (VPN) 断开</h2>
+        <p style="font-size: 14px;"><strong>防封号红线：</strong>您的设备已丢失 VPN 保护。详情如下：</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <tr><td style="padding: 6px; font-weight: bold; width: 100px;">设备名称：</td><td style="padding: 6px; color: #111827;">${name}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">激活码：</td><td style="padding: 6px; color: #111827;">${conn.code}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">代理状态：</td><td style="padding: 6px; color: #e11d48; font-weight: bold;">已断开 (回落至直连 IP: ${this.getDeviceRemoteIp(conn.deviceId)})</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
+        </table>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">为了避免挂机账号关联封禁，请立即连上代理并检查网络线路。</p>
+      </div>
+    `;
+
+    await this.sendAlertEmail(conn.code, subject, html);
+  }
+
+  // 5. 内存超限
+  private async handleOutOfMemory(conn: ClientConnection, currentMemory: number) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code: conn.code },
+      select: { alertConfig: true },
+    });
+    const config = (regCode?.alertConfig as any) || {};
+    const limit = Number(config.memoryLimit) || 153600; // 默认 150MB
+
+    if (currentMemory <= limit) return;
+
+    // 10 分钟冷喷限制
+    const now = Date.now();
+    const lastTime = this.lastMemoryAlertTimes.get(conn.deviceId) || 0;
+    if (now - lastTime < 600000) return;
+    this.lastMemoryAlertTimes.set(conn.deviceId, now);
+
+    const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
+    const message = `预警：设备 [${name}] 当前脚本占用内存 ${(currentMemory / 1024).toFixed(1)}MB，超过设定的阈值 ${(limit / 1024).toFixed(1)}MB。面临闪退或崩溃隐患。`;
+    
+    this.addAlertToHistory(conn, 'out_of_memory', '内存泄漏预警', message);
+
+    const subject = `🧠 预警：挂机脚本内存使用超限 [${name}]`;
+    const html = `
+      <div style="padding: 24px; font-family: sans-serif; background-color: #faf5ff; color: #6b21a8; border-radius: 8px; border: 1px solid #f3e8ff;">
+        <h2 style="color: #9333ea; margin-bottom: 16px;">🧠 脚本内存泄漏超限预警</h2>
+        <p style="font-size: 14px;">设备脚本内存持续攀升。详情如下：</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <tr><td style="padding: 6px; font-weight: bold; width: 120px;">设备名称：</td><td style="padding: 6px; color: #111827;">${name}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">当前内存占用：</td><td style="padding: 6px; color: #dc2626; font-weight: bold;">${(currentMemory / 1024).toFixed(1)} MB</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">预设上限阀值：</td><td style="padding: 6px; color: #111827;">${(limit / 1024).toFixed(1)} MB</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
+        </table>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">若出现泄漏，可能是循环或闭包中大变量未释放，建议适时重启脚本或排查代码。</p>
+      </div>
+    `;
+
+    await this.sendAlertEmail(conn.code, subject, html);
+  }
+
+  // 6. ERROR 日志上报
+  private async handleErrorLogAlert(conn: ClientConnection, logContent: string) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code: conn.code },
+      select: { alertConfig: true },
+    });
+    const config = (regCode?.alertConfig as any) || {};
+    if (config.errorLog === false) return; // 未订阅
+
+    // 5 分钟冷喷限制
+    const now = Date.now();
+    const lastTime = this.lastErrorAlertTimes.get(conn.deviceId) || 0;
+    if (now - lastTime < 300000) return;
+    this.lastErrorAlertTimes.set(conn.deviceId, now);
+
+    const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
+    const message = `业务告警：设备 [${name}] 发生运行异常。内容: ${logContent}`;
+    
+    this.addAlertToHistory(conn, 'error_log_report', '脚本运行卡死', message);
+
+    const subject = `❌ 业务报警：挂机脚本发生致命异常/卡死错误 [${name}]`;
+    const html = `
+      <div style="padding: 24px; font-family: sans-serif; background-color: #fef2f2; color: #991b1b; border-radius: 8px; border: 1px solid #fee2e2;">
+        <h2 style="color: #dc2626; margin-bottom: 16px;">❌ 挂机脚本上报 ERROR 日志</h2>
+        <p style="font-size: 14px;">脚本运行至关键流程时发生阻断错误，上报内容如下：</p>
+        <div style="background: #ffffff; padding: 12px; border: 1px solid #f87171; border-radius: 4px; font-family: monospace; font-size: 13px; color: #b91c1c; margin: 16px 0; word-break: break-all;">
+          ${logContent}
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <tr><td style="padding: 6px; font-weight: bold; width: 100px;">设备名称：</td><td style="padding: 6px; color: #111827;">${name}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">激活码：</td><td style="padding: 6px; color: #111827;">${conn.code}</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
+        </table>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">您可以打开网页后台的实时日志或控制台对脚本进行干预。</p>
+      </div>
+    `;
+
+    await this.sendAlertEmail(conn.code, subject, html);
   }
 }
 

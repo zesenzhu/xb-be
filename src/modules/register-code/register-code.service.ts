@@ -26,10 +26,10 @@ interface BindDeviceItem {
   isRoot?: number;
   ip?: string;
   battery?: number;
-  diskSpace?: string;
-  cpuTemp?: number;
-  cpuLoad?: number;
-  rtt?: number;
+  deviceType?: string;
+  frontApp?: string;
+  isLocked?: number;
+  vpnStatus?: number;
 }
 
 @Injectable()
@@ -317,7 +317,10 @@ export class RegisterCodeService {
         existingDevice.isRoot = deviceInfo.isRoot !== undefined ? deviceInfo.isRoot : existingDevice.isRoot;
         existingDevice.ip = deviceInfo.ip || existingDevice.ip;
         existingDevice.battery = deviceInfo.battery !== undefined ? deviceInfo.battery : existingDevice.battery;
-        existingDevice.diskSpace = deviceInfo.diskSpace || existingDevice.diskSpace;
+        existingDevice.deviceType = deviceInfo.deviceType || existingDevice.deviceType;
+        existingDevice.frontApp = deviceInfo.frontApp || existingDevice.frontApp;
+        existingDevice.isLocked = deviceInfo.isLocked !== undefined ? deviceInfo.isLocked : existingDevice.isLocked;
+        existingDevice.vpnStatus = deviceInfo.vpnStatus !== undefined ? deviceInfo.vpnStatus : existingDevice.vpnStatus;
       }
     } else {
       if (record.usedNum >= record.maxActive) {
@@ -336,7 +339,10 @@ export class RegisterCodeService {
         isRoot: deviceInfo?.isRoot,
         ip: deviceInfo?.ip,
         battery: deviceInfo?.battery,
-        diskSpace: deviceInfo?.diskSpace,
+        deviceType: deviceInfo?.deviceType,
+        frontApp: deviceInfo?.frontApp,
+        isLocked: deviceInfo?.isLocked,
+        vpnStatus: deviceInfo?.vpnStatus,
       });
     }
 
@@ -608,10 +614,12 @@ export class RegisterCodeService {
         ip: onlineIp || devInfo.ip || '127.0.0.1',
         status: isOnline ? 'online' : 'offline',
         battery: devInfo.battery !== undefined ? devInfo.battery : 100,
-        diskSpace: devInfo.diskSpace || '未授权',
-        temperature: isOnline ? (devInfo.cpuTemp !== undefined ? devInfo.cpuTemp : 0) : 0,
-        cpuLoad: isOnline ? (devInfo.cpuLoad !== undefined ? devInfo.cpuLoad : 0) : 0,
-        rtt: isOnline ? (devInfo.rtt !== undefined ? devInfo.rtt : 0) : 0,
+        deviceType: devInfo.deviceType || 'unknown',
+        frontApp: devInfo.frontApp || 'unknown',
+        isLocked: devInfo.isLocked === 1,
+        vpnStatus: devInfo.vpnStatus === 1,
+        scriptMemory: (devInfo as any).scriptMemory || 0,
+        isSwitchingAccount: (devInfo as any).isSwitchingAccount === 1,
         licenseBound: dev.licenseBound,
         appName: dev.appName || '通用',
         heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
@@ -662,16 +670,79 @@ export class RegisterCodeService {
         battery: devInfo.battery !== undefined ? devInfo.battery : 100,
         ip: onlineIp || devInfo.ip || '127.0.0.1',
         status: isOnline ? 'online' : 'offline',
-        diskSpace: devInfo.diskSpace || '未授权',
-        temperature: isOnline ? (devInfo.cpuTemp !== undefined ? devInfo.cpuTemp : 0) : 0,
-        cpuLoad: isOnline ? (devInfo.cpuLoad !== undefined ? devInfo.cpuLoad : 0) : 0,
-        rtt: isOnline ? (devInfo.rtt !== undefined ? devInfo.rtt : 0) : 0,
+        deviceType: devInfo.deviceType || 'unknown',
+        frontApp: devInfo.frontApp || 'unknown',
+        isLocked: devInfo.isLocked === 1,
+        vpnStatus: devInfo.vpnStatus === 1,
+        scriptMemory: (devInfo as any).scriptMemory || 0,
+        isSwitchingAccount: (devInfo as any).isSwitchingAccount === 1,
         licenseBound: regCode.code,
         heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
       };
     });
 
     return list;
+  }
+
+  /**
+   * 获取卡密警报配置
+   */
+  async getAlertConfig(code: string) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+      select: {
+        alertEmail: true,
+        alertConfig: true,
+      },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('注册激活码不存在');
+    }
+
+    return {
+      alertEmail: regCode.alertEmail || '',
+      alertConfig: regCode.alertConfig || {
+        offline: true,
+        launcher: true,
+        locked: false,
+        vpn: true,
+        errorLog: true,
+        memoryLimit: 153600,
+      },
+    };
+  }
+
+  /**
+   * 更新卡密警报配置
+   */
+  async updateAlertConfig(code: string, alertEmail: string, alertConfig: any) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('注册激活码不存在');
+    }
+
+    await this.prisma.registerCode.update({
+      where: { code },
+      data: {
+        alertEmail: alertEmail || null,
+        alertConfig: alertConfig || undefined,
+      },
+    });
+
+    await this.recordActionLog(code, 'UPDATE_ALERT', `更新了邮箱报警推送配置: 邮箱 ${alertEmail || '未设置'}`, 'user');
+
+    return { success: true, message: '警报配置更新成功' };
+  }
+
+  /**
+   * 获取最近紧急警报历史列表
+   */
+  getAlertHistory() {
+    return this.tcpSocketService.getAlertHistory();
   }
 
   /**

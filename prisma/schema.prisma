@@ -85,7 +85,9 @@ model RegisterCode {
   allowedApis     Json        @default("[]") @map("allowed_apis")
   
   remark          String?     // 管理员备注
-  
+  alertEmail      String?     @map("alert_email") // 警报通知接收邮箱
+  alertConfig     Json?       @default("{\"offline\":true,\"launcher\":true,\"locked\":false,\"vpn\":true,\"errorLog\":true,\"memoryLimit\":153600}") @map("alert_config") // 警报订阅配置开关
+
   logs            ScriptLog[]
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")

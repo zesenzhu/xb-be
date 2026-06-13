@@ -23,6 +23,7 @@ export class SystemSettingService {
     // 默认键兜底
     const defaultKeys = [
       'mail_enabled',
+      'alert_mail_enabled',
       'smtp_host',
       'smtp_port',
       'smtp_user',
@@ -31,7 +32,7 @@ export class SystemSettingService {
     ];
     defaultKeys.forEach((key) => {
       if (settings[key] === undefined) {
-        settings[key] = key === 'mail_enabled' ? 'false' : '';
+        settings[key] = (key === 'mail_enabled' || key === 'alert_mail_enabled') ? 'false' : '';
       }
     });
 
@@ -58,14 +59,18 @@ export class SystemSettingService {
   }
 
   /**
-   * 获取公开属性：是否开启邮件验证码
+   * 获取公开属性：是否开启邮件验证码及警报开关
    */
   async getPublicSettings() {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: 'mail_enabled' },
     });
+    const alertSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'alert_mail_enabled' },
+    });
     return {
       emailEnabled: setting?.value === 'true',
+      alertMailEnabled: alertSetting?.value === 'true',
     };
   }
 }
