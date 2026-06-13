@@ -43,6 +43,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   // 记录各设备当前网页端实时日志订阅人数: deviceId -> count
   private readonly logStreamViewers = new Map<string, number>();
 
+  // 记录当前活跃在网页端的全局监视授权码
+  private readonly activeWebClients = new Set<string>();
+
   // 全局的日志流广播 Subject，用于桥接 TCP 上报与 SSE 推送
   public readonly logBroadcaster$ = new Subject<{
     deviceId: string;
@@ -54,6 +57,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       module: string;
       content: string;
     };
+  }>();
+
+  // 全局的设备状态广播 Subject，用于推送设备上线、下线、电量变化等事件到网页端
+  public readonly deviceState$ = new Subject<{
+    type: 'device_list' | 'device_status';
+    code: string;
+    deviceId: string;
+    payload: any;
   }>();
 
   constructor(
@@ -147,6 +158,19 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     socket.on('close', () => {
       if (deviceId) {
         this.logger.log(`客户端连接已断开，清理缓存: ${deviceId}`);
+        const conn = this.activeConnections.get(deviceId);
+        if (conn) {
+          // 广播设备下线事件
+          this.deviceState$.next({
+            type: 'device_list',
+            code: conn.code,
+            deviceId,
+            payload: {
+              action: 'offline',
+              deviceId,
+            }
+          });
+        }
         this.activeConnections.delete(deviceId);
         this.logStreamViewers.delete(deviceId);
       }
@@ -193,6 +217,20 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           deviceInfo,
         });
 
+        // 广播设备上线/列表更新事件
+        this.deviceState$.next({
+          type: 'device_list',
+          code,
+          deviceId,
+          payload: {
+            action: 'online',
+            deviceId,
+            appName,
+            deviceInfo,
+            ip: this.getDeviceRemoteIp(deviceId),
+          }
+        });
+
         this.logger.log(`客户端设备通过 TCP 鉴权成功: [${deviceId}] 注册码 [${code}]`);
         
         // 响应客户端
@@ -206,9 +244,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           }
         }) + '\n');
 
-        // 💡 顺便检查一下：如果刚刚在没有连接前，已经有网页管理员在看该设备日志了，我们立刻下发开启日志流指令！
+        // 💡 顺便检查一下：如果刚刚在没有连接前，已经有网页端正在监视（管理员或授权码用户），我们立刻下发开启日志流指令！
         const viewers = this.logStreamViewers.get(deviceId) || 0;
-        if (viewers > 0) {
+        if (viewers > 0 || this.activeWebClients.has(code)) {
           socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
         }
 
@@ -235,6 +273,18 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         connection.deviceInfo.battery = Number(data.battery);
       }
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
+
+      // 广播设备状态与电量更新事件
+      this.deviceState$.next({
+        type: 'device_status',
+        code: connection.code,
+        deviceId,
+        payload: {
+          battery: connection.deviceInfo?.battery || 100,
+          status: 'online',
+          ip: this.getDeviceRemoteIp(deviceId)
+        }
+      });
       return;
     }
 
@@ -266,13 +316,30 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         
         try {
           // 批量构建 ScriptLog 数据并落库
-          const insertData = logsList.map((log: any) => ({
-            deviceId,
-            registerCodeId: connection.codeId,
-            level: log.level || 'INFO',
-            message: `[${log.module || 'CLIENT'}] ${log.content || ''}`,
-            timestamp: log.timestamp ? new Date(log.timestamp) : new Date(),
-          }));
+          const insertData = logsList.map((log: any) => {
+            // 💡 解决物理时间戳被 TickCount() 错误还原为 1970 年的 Bug：
+            // 如果日志本身有 time 字段 (HH:mm:ss 格式，代表真实时间)，我们将其与当前服务器日期拼接，还原出精确的真实时间戳
+            const logDate = new Date();
+            if (log.time && typeof log.time === 'string') {
+              const timeParts = log.time.split(':');
+              if (timeParts.length === 3) {
+                const hours = parseInt(timeParts[0], 10);
+                const minutes = parseInt(timeParts[1], 10);
+                const seconds = parseInt(timeParts[2], 10);
+                if (!isNaN(hours) && !isNaN(minutes) && !isNaN(seconds)) {
+                  logDate.setHours(hours, minutes, seconds, 0);
+                }
+              }
+            }
+
+            return {
+              deviceId,
+              registerCodeId: connection.codeId,
+              level: log.level || 'INFO',
+              message: `[${log.module || 'CLIENT'}] ${log.content || ''}`,
+              timestamp: logDate,
+            };
+          });
 
           await this.prisma.scriptLog.createMany({
             data: insertData,
@@ -331,6 +398,18 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     const connection = this.activeConnections.get(deviceId);
     if (connection) {
       this.logger.log(`由于管理员解绑，强制断开设备 TCP 连接: ${deviceId}`);
+
+      // 广播设备下线事件
+      this.deviceState$.next({
+        type: 'device_list',
+        code: connection.code,
+        deviceId,
+        payload: {
+          action: 'offline',
+          deviceId,
+        }
+      });
+
       connection.socket.write(JSON.stringify({ cmd: 'force_kick', message: 'Device unbound by administrator' }) + '\n');
       connection.socket.end();
       this.activeConnections.delete(deviceId);
@@ -370,6 +449,47 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
    */
   public getActiveConnection(deviceId: string): ClientConnection | undefined {
     return this.activeConnections.get(deviceId);
+  }
+
+  /**
+   * 获取指定授权码名下的所有在线物理设备 ID 列表
+   */
+  public getOnlineDevicesByCode(code: string): string[] {
+    const list: string[] = [];
+    for (const [deviceId, conn] of this.activeConnections.entries()) {
+      if (conn.code === code) {
+        list.push(deviceId);
+      }
+    }
+    return list;
+  }
+
+  /**
+   * 网页端注册/加入全局长连接监视
+   */
+  public addWebClient(code: string) {
+    this.activeWebClients.add(code);
+    // 找出该 code 下所有在线设备，通知其开始上报
+    for (const [deviceId, conn] of this.activeConnections.entries()) {
+      if (conn.code === code) {
+        this.logger.log(`检测到网页端已打开全局监视，向设备 [${deviceId}] 下发：start_log_stream`);
+        conn.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
+      }
+    }
+  }
+
+  /**
+   * 网页端移出/取消全局长连接监视
+   */
+  public removeWebClient(code: string) {
+    this.activeWebClients.delete(code);
+    // 找出该 code 下所有在线设备，通知其停止上报以省电
+    for (const [deviceId, conn] of this.activeConnections.entries()) {
+      if (conn.code === code) {
+        this.logger.log(`检测到网页端已关闭全局监视，向设备 [${deviceId}] 下发：stop_log_stream`);
+        conn.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
+      }
+    }
   }
 }
 

@@ -19,7 +19,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
 import { Prisma } from '@prisma/client';
-import { Observable } from 'rxjs';
+import { Observable, merge, interval } from 'rxjs';
 import { filter, map, finalize } from 'rxjs/operators';
 
 @ApiTags('ScriptLog 日志管理')
@@ -62,6 +62,69 @@ export class ScriptLogController {
       finalize(() => {
         this.tcpSocketService.removeViewer(deviceId);
       }),
+    );
+  }
+
+  /**
+   * 1.5 用户端全局统一多路混合 SSE 长连接通道
+   */
+  @Sse('user-stream')
+  @ApiOperation({
+    summary: '用户端全局混合长连接通道 (SSE)',
+    description: '网页端订阅此注册码关联的所有物理设备的实时日志、上线/下线列表更新、设备状态电量变动以及全局心跳包。',
+  })
+  userStreamLogs(
+    @Query('code') code: string,
+  ): Observable<MessageEvent> {
+    if (!code) {
+      throw new BadRequestException('参数 code (授权码) 不能为空');
+    }
+
+    // 注册网页客户端监视器（开启当前所有在线设备的日志传输）
+    this.tcpSocketService.addWebClient(code);
+
+    // 1. 日志事件流订阅，过滤并打包为 log 类别
+    const logsStream$ = this.tcpSocketService.logBroadcaster$.pipe(
+      filter((event) => event.code === code),
+      map((event) => ({
+        data: {
+          type: 'log',
+          payload: {
+            deviceId: event.deviceId,
+            ...event.log,
+          },
+        },
+      }))
+    );
+
+    // 2. 设备上下线与状态电量变动事件订阅
+    const deviceStateStream$ = this.tcpSocketService.deviceState$.pipe(
+      filter((event) => event.code === code),
+      map((event) => ({
+        data: {
+          type: event.type, // 'device_list' | 'device_status'
+          payload: event.payload,
+        },
+      }))
+    );
+
+    // 3. 全局统一心跳定时任务 (10秒一次) 用于维持连线并让前端知道链路活跃
+    const heartbeatStream$ = interval(10000).pipe(
+      map(() => ({
+        data: {
+          type: 'heartbeat',
+          payload: {
+            timestamp: Date.now(),
+          },
+        },
+      }))
+    );
+
+    // 4. 合并三路数据流输出，并在关闭时自动卸载，断开所属设备的日志推送以省电
+    return merge(logsStream$, deviceStateStream$, heartbeatStream$).pipe(
+      finalize(() => {
+        this.tcpSocketService.removeWebClient(code);
+      })
     );
   }
 
