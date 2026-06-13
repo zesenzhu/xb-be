@@ -17,6 +17,7 @@ interface ClientConnection {
   codeId: string;
   deviceId: string;
   appName?: string;
+  pingCount?: number;
   deviceInfo?: {
     name: string;
     model: string;
@@ -27,6 +28,10 @@ interface ClientConnection {
     isRoot: number;
     battery: number;
     ip: string;
+    diskSpace?: string;
+    cpuTemp?: number;
+    cpuLoad?: number;
+    rtt?: number;
   };
 }
 
@@ -185,8 +190,30 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
    * 解析并处理单条 JSON 协议指令数据
    */
   private async processMessage(socket: net.Socket, rawMessage: string, setDeviceId: (id: string) => void) {
-    const data = JSON.parse(rawMessage);
-    const { action, code, deviceId, appName, deviceInfo } = data;
+    interface MessageData {
+      action?: string;
+      code?: string;
+      deviceId?: string;
+      appName?: string;
+      deviceInfo?: ClientConnection['deviceInfo'];
+      battery?: number;
+      cpuTemp?: number;
+      cpuLoad?: number;
+      rtt?: number;
+      logs?: Array<{
+        level: 'INFO' | 'WARN' | 'ERROR';
+        module: string;
+        content: string;
+        time: string;
+        timestamp: number;
+      }>;
+    }
+    const data = JSON.parse(rawMessage) as MessageData;
+    const action = data.action || '';
+    const code = data.code || '';
+    const deviceId = data.deviceId || '';
+    const appName = data.appName || '';
+    const deviceInfo = data.deviceInfo;
 
     if (!action) {
       socket.write(JSON.stringify({ status: 'error', message: 'Missing action field' }) + '\n');
@@ -214,6 +241,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           codeId: authResult.codeId,
           deviceId,
           appName,
+          pingCount: 0,
           deviceInfo,
         });
 
@@ -269,18 +297,34 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     // 2. 心跳机制
     if (action === 'ping') {
-      if (connection.deviceInfo && data.battery !== undefined) {
-        connection.deviceInfo.battery = Number(data.battery);
+      connection.pingCount = (connection.pingCount || 0) + 1;
+      
+      if (connection.deviceInfo) {
+        if (data.battery !== undefined) {
+          connection.deviceInfo.battery = Number(data.battery);
+        }
+        if (data.cpuTemp !== undefined) {
+          connection.deviceInfo.cpuTemp = Number(data.cpuTemp);
+        }
+        if (data.cpuLoad !== undefined) {
+          connection.deviceInfo.cpuLoad = Number(data.cpuLoad);
+        }
+        if (data.rtt !== undefined) {
+          connection.deviceInfo.rtt = Number(data.rtt);
+        }
       }
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
 
-      // 广播设备状态与电量更新事件
+      // 广播设备状态与真实硬件更新事件
       this.deviceState$.next({
         type: 'device_status',
         code: connection.code,
         deviceId,
         payload: {
           battery: connection.deviceInfo?.battery || 100,
+          cpuTemp: connection.deviceInfo?.cpuTemp || 0,
+          cpuLoad: connection.deviceInfo?.cpuLoad || 0,
+          rtt: connection.deviceInfo?.rtt || 0,
           status: 'online',
           ip: this.getDeviceRemoteIp(deviceId)
         }

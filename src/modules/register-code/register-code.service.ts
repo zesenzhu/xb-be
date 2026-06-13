@@ -26,6 +26,7 @@ interface BindDeviceItem {
   isRoot?: number;
   ip?: string;
   battery?: number;
+  diskSpace?: string;
 }
 
 @Injectable()
@@ -313,6 +314,7 @@ export class RegisterCodeService {
         existingDevice.isRoot = deviceInfo.isRoot !== undefined ? deviceInfo.isRoot : existingDevice.isRoot;
         existingDevice.ip = deviceInfo.ip || existingDevice.ip;
         existingDevice.battery = deviceInfo.battery !== undefined ? deviceInfo.battery : existingDevice.battery;
+        existingDevice.diskSpace = deviceInfo.diskSpace || existingDevice.diskSpace;
       }
     } else {
       if (record.usedNum >= record.maxActive) {
@@ -331,6 +333,7 @@ export class RegisterCodeService {
         isRoot: deviceInfo?.isRoot,
         ip: deviceInfo?.ip,
         battery: deviceInfo?.battery,
+        diskSpace: deviceInfo?.diskSpace,
       });
     }
 
@@ -588,11 +591,6 @@ export class RegisterCodeService {
       const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
       const devInfo = connection?.deviceInfo || dev;
       
-      const temp = isOnline ? 35 + Math.floor(Math.random() * 12) : 0;
-      const load = isOnline ? 10 + Math.floor(Math.random() * 45) : 0;
-      const rtt = isOnline ? 10 + Math.floor(Math.random() * 15) : 0;
-      const heartbeats = isOnline ? 100 + Math.floor(Math.random() * 500) : 0;
-      
       const maskedId = dev.deviceId.slice(0, 8);
       
       return {
@@ -607,12 +605,13 @@ export class RegisterCodeService {
         ip: onlineIp || devInfo.ip || '127.0.0.1',
         status: isOnline ? 'online' : 'offline',
         battery: devInfo.battery !== undefined ? devInfo.battery : 100,
-        temperature: temp,
-        cpuLoad: load,
-        rtt,
+        diskSpace: devInfo.diskSpace || '未授权',
+        temperature: isOnline ? (devInfo.cpuTemp !== undefined ? devInfo.cpuTemp : 0) : 0,
+        cpuLoad: isOnline ? (devInfo.cpuLoad !== undefined ? devInfo.cpuLoad : 0) : 0,
+        rtt: isOnline ? (devInfo.rtt !== undefined ? devInfo.rtt : 0) : 0,
         licenseBound: dev.licenseBound,
         appName: dev.appName || '通用',
-        heartbeatsCount: heartbeats,
+        heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
         activatedAt: dev.activatedAt || null,
         lastActiveAt: dev.lastActiveAt || null,
       };
@@ -648,9 +647,6 @@ export class RegisterCodeService {
       const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
       const devInfo = connection?.deviceInfo || dev;
       
-      const temp = isOnline ? 35 + Math.floor(Math.random() * 12) : 0;
-      const load = isOnline ? 10 + Math.floor(Math.random() * 45) : 0;
-      
       return {
         id: dev.deviceId,
         name: devInfo.name || `设备终端 (${dev.deviceId.slice(0, 8)})`,
@@ -663,11 +659,12 @@ export class RegisterCodeService {
         battery: devInfo.battery !== undefined ? devInfo.battery : 100,
         ip: onlineIp || devInfo.ip || '127.0.0.1',
         status: isOnline ? 'online' : 'offline',
-        temperature: temp,
-        cpuLoad: load,
-        rtt: isOnline ? 10 + Math.floor(Math.random() * 15) : 0,
+        diskSpace: devInfo.diskSpace || '未授权',
+        temperature: isOnline ? (devInfo.cpuTemp !== undefined ? devInfo.cpuTemp : 0) : 0,
+        cpuLoad: isOnline ? (devInfo.cpuLoad !== undefined ? devInfo.cpuLoad : 0) : 0,
+        rtt: isOnline ? (devInfo.rtt !== undefined ? devInfo.rtt : 0) : 0,
         licenseBound: regCode.code,
-        heartbeatsCount: isOnline ? 100 + Math.floor(Math.random() * 500) : 0,
+        heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
       };
     });
 
