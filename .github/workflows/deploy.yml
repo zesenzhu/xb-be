@@ -59,6 +59,7 @@ jobs:
           echo "DOUBAO_API_KEY=${{ secrets.DOUBAO_API_KEY || '' }}" >> .env
           echo "DOUBAO_BASE_URL=${{ secrets.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}" >> .env
           echo "DOUBAO_MODEL_ENDPOINT=${{ secrets.DOUBAO_MODEL_ENDPOINT || '' }}" >> .env
+          echo "COOKIE_SECURE=${{ secrets.COOKIE_SECURE || 'false' }}" >> .env
 
       - name: Copy docker-compose, .env and image tar via SCP
         uses: appleboy/scp-action@v0.1.7

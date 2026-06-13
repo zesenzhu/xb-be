@@ -157,6 +157,8 @@ export class AuthService {
    */
   setCookies(res: Response, tokens: { accessToken: string; refreshToken: string }, type: 'admin' | 'user') {
     const isProduction = process.env.NODE_ENV === 'production';
+    // 允许通过环境变量显式控制是否开启 secure，常用于生产环境在非 HTTPS 协议下代理部署
+    const useSecure = process.env.COOKIE_SECURE === 'true' || (isProduction && process.env.COOKIE_SECURE !== 'false');
     
     // 物理防冲突：管理员与普通用户使用不同名称的 Cookie
     const accessCookieName = type === 'admin' ? 'access_token' : 'user_access_token';
@@ -165,7 +167,7 @@ export class AuthService {
     // 写入访问令牌：1 小时有效期
     res.cookie(accessCookieName, tokens.accessToken, {
       httpOnly: true,
-      secure: isProduction,
+      secure: useSecure,
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 1000,
@@ -174,7 +176,7 @@ export class AuthService {
     // 写入刷新令牌：7 天有效期
     res.cookie(refreshCookieName, tokens.refreshToken, {
       httpOnly: true,
-      secure: isProduction,
+      secure: useSecure,
       sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -189,18 +191,19 @@ export class AuthService {
    */
   clearCookies(res: Response, type: 'admin' | 'user') {
     const isProduction = process.env.NODE_ENV === 'production';
+    const useSecure = process.env.COOKIE_SECURE === 'true' || (isProduction && process.env.COOKIE_SECURE !== 'false');
     const accessCookieName = type === 'admin' ? 'access_token' : 'user_access_token';
     const refreshCookieName = type === 'admin' ? 'refresh_token' : 'user_refresh_token';
 
     res.clearCookie(accessCookieName, {
       httpOnly: true,
-      secure: isProduction,
+      secure: useSecure,
       sameSite: 'lax',
       path: '/',
     });
     res.clearCookie(refreshCookieName, {
       httpOnly: true,
-      secure: isProduction,
+      secure: useSecure,
       sameSite: 'lax',
       path: '/',
     });
