@@ -79,6 +79,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   // 内存溢出告警冷喷时间限制 (10 分钟): deviceId -> timestamp
   private readonly lastMemoryAlertTimes = new Map<string, number>();
 
+  // 设备断线判定防抖延迟定时器: deviceId -> timer
+  private readonly offlineAlertTimers = new Map<string, NodeJS.Timeout>();
+
   // 全局的日志流广播 Subject，用于桥接 TCP 上报与 SSE 推送
   public readonly logBroadcaster$ = new Subject<{
     deviceId: string;
@@ -226,40 +229,58 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     socket.on('close', () => {
       if (deviceId) {
-        this.logger.log(`客户端连接已断开，清理缓存: ${deviceId}`);
-        const conn = this.activeConnections.get(deviceId);
+        const id = deviceId;
+        this.logger.log(`客户端连接已断开，清理缓存: ${id}`);
+        const conn = this.activeConnections.get(id);
         if (conn) {
           // 广播设备下线事件
           this.deviceState$.next({
             type: 'device_list',
             code: conn.code,
-            deviceId,
+            deviceId: id,
             payload: {
               action: 'offline',
-              deviceId,
+              deviceId: id,
             }
           });
 
-          // 意外下线判定：如果设备没有被标记为优雅退出且已经认证过，发送报警邮件
+          // 意外下线判定：如果设备没有被标记为优雅退出且已经认证过，启用 120 秒防抖延迟评估
           if (!conn.isExiting) {
-            this.handleUnexpectedOffline(conn).catch((err) => {
-              this.logger.error(`执行离线报警评估出错: ${deviceId}`, err);
-            });
+            if (this.offlineAlertTimers.has(id)) {
+              clearTimeout(this.offlineAlertTimers.get(id));
+            }
+
+            const timer = setTimeout(() => {
+              this.offlineAlertTimers.delete(id);
+              
+              // 120 秒到期，再次判定：如果该设备仍未连回（即 activeConnections 里依然不存在此 id），发送报警邮件
+              const currentConn = this.activeConnections.get(id);
+              if (!currentConn) {
+                this.handleUnexpectedOffline(conn).catch((err) => {
+                  this.logger.error(`执行离线报警评估出错: ${id}`, err);
+                });
+              } else {
+                this.logger.log(`[离线评估] 设备 [${id}] 在 120 秒防抖期内已连回，自动取消意外离线报警邮件 of 的发送。`);
+              }
+            }, 120 * 1000);
+
+            this.offlineAlertTimers.set(id, timer);
+            this.logger.log(`[离线评估] 检测到设备 [${id}] 突发断连，已启动 120 秒意外离线防抖检测...`);
           }
         }
 
         // 清理该设备名下的定时器，避免内存泄漏
-        if (this.launcherTimers.has(deviceId)) {
-          clearTimeout(this.launcherTimers.get(deviceId));
-          this.launcherTimers.delete(deviceId);
+        if (this.launcherTimers.has(id)) {
+          clearTimeout(this.launcherTimers.get(id));
+          this.launcherTimers.delete(id);
         }
-        if (this.lockedTimers.has(deviceId)) {
-          clearTimeout(this.lockedTimers.get(deviceId));
-          this.lockedTimers.delete(deviceId);
+        if (this.lockedTimers.has(id)) {
+          clearTimeout(this.lockedTimers.get(id));
+          this.lockedTimers.delete(id);
         }
 
-        this.activeConnections.delete(deviceId);
-        this.logStreamViewers.delete(deviceId);
+        this.activeConnections.delete(id);
+        this.logStreamViewers.delete(id);
       }
     });
 
@@ -328,6 +349,13 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           pingCount: 0,
           deviceInfo,
         });
+
+        // 重新连回成功，立即清除并取消 pending 的意外下线延迟告警评估
+        if (this.offlineAlertTimers.has(deviceId)) {
+          clearTimeout(this.offlineAlertTimers.get(deviceId));
+          this.offlineAlertTimers.delete(deviceId);
+          this.logger.log(`设备 [${deviceId}] 重新连回并鉴权成功，已取消意外离线报警评估。`);
+        }
 
         // 广播设备上线/列表更新事件
         this.deviceState$.next({
