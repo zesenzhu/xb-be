@@ -211,13 +211,22 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         buffer = buffer.substring(newlineIdx + 1);
         
         if (line) {
+          // 💡 快速熔断非 JSON 帧的非法网络扫描（如 HTTP GET / Host 扫描）
+          if (line.charAt(0) !== '{') {
+            this.logger.warn(`检测到非 JSON 协议帧，已断开连接。内容: ${line.substring(0, 80)}`);
+            socket.destroy();
+            return;
+          }
+
           try {
             await this.processMessage(socket, line, (id) => {
               deviceId = id;
             });
           } catch (err) {
-            this.logger.error(`解析数据帧出错: ${line}`, err);
+            this.logger.error(`解析数据帧出错: ${line.substring(0, 150)}`, err);
             socket.write(JSON.stringify({ status: 'error', message: 'Bad request frame format' }) + '\n');
+            socket.destroy(); // 协议异常立即切断连接，避免被无效请求占满句柄
+            return;
           }
         }
         newlineIdx = buffer.indexOf('\n');
