@@ -250,6 +250,17 @@ export class RegisterCodeService {
    * 客户端免密登录激活校验状态机
    */
   async activateCode(code: string, deviceId: string, appName?: string, deviceInfo?: any) {
+    // 前置拉黑拦截
+    const isBlacklisted = await this.prisma.registerCodeBlacklist.findFirst({
+      where: {
+        registerCode: { code },
+        deviceId,
+      },
+    });
+    if (isBlacklisted) {
+      throw new BadRequestException('该设备已被禁止绑定此授权码！');
+    }
+
     const record = await this.prisma.registerCode.findUnique({
       where: { code },
     });
@@ -620,11 +631,14 @@ export class RegisterCodeService {
         vpnStatus: devInfo.vpnStatus === 1,
         scriptMemory: (devInfo as any).scriptMemory || 0,
         isSwitchingAccount: (devInfo as any).isSwitchingAccount === 1,
+        currentTask: (devInfo as any).currentTask || '离线/空闲',
+        runningTime: (devInfo as any).runningTime || 0,
         licenseBound: dev.licenseBound,
         appName: dev.appName || '通用',
         heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
         activatedAt: dev.activatedAt || null,
         lastActiveAt: dev.lastActiveAt || null,
+        connectedAt: isOnline && connection?.connectedAt ? connection.connectedAt.toISOString() : null,
       };
     });
 
@@ -676,8 +690,11 @@ export class RegisterCodeService {
         vpnStatus: devInfo.vpnStatus === 1,
         scriptMemory: (devInfo as any).scriptMemory || 0,
         isSwitchingAccount: (devInfo as any).isSwitchingAccount === 1,
+        currentTask: (devInfo as any).currentTask || '离线/空闲',
+        runningTime: (devInfo as any).runningTime || 0,
         licenseBound: regCode.code,
         heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
+        connectedAt: isOnline && connection?.connectedAt ? connection.connectedAt.toISOString() : null,
       };
     });
 
@@ -1194,6 +1211,17 @@ export class RegisterCodeService {
       return { success: false, message: '注册码和设备ID不能为空' };
     }
 
+    // 前置拉黑拦截
+    const isBlacklisted = await this.prisma.registerCodeBlacklist.findFirst({
+      where: {
+        registerCode: { code },
+        deviceId,
+      },
+    });
+    if (isBlacklisted) {
+      return { success: false, message: '该设备已被禁止绑定此授权码' };
+    }
+
     // 1. 查找注册码
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code },
@@ -1301,6 +1329,219 @@ export class RegisterCodeService {
       message: '新设备绑定并验证成功',
       expireTime: updatedExpireTime ? updatedExpireTime.toISOString() : null
     };
+  }
+
+  /**
+   * 解绑单个绑定的物理设备
+   */
+  async unbindSingleDevice(code: string, deviceId: string, operator: string = 'user') {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    let devices: BindDeviceItem[] = [];
+    try {
+      devices = typeof regCode.bindDevices === 'string'
+        ? JSON.parse(regCode.bindDevices)
+        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
+    } catch (e) {
+      devices = [];
+    }
+
+    const devIndex = devices.findIndex(d => d.deviceId === deviceId);
+    if (devIndex === -1) {
+      throw new BadRequestException('该设备未绑定至此注册码！');
+    }
+
+    const targetDev = devices[devIndex];
+    devices.splice(devIndex, 1);
+
+    const boundAt = targetDev.activatedAt ? new Date(targetDev.activatedAt) : new Date();
+    const lastIp = targetDev.ip || '127.0.0.1';
+    const deviceName = targetDev.name || `设备 (${deviceId.slice(0, 8)})`;
+
+    const updatedUsedNum = devices.length;
+    let nextStatus = regCode.status;
+    if (regCode.expireTime && new Date() > new Date(regCode.expireTime)) {
+      nextStatus = 3;
+    } else if (regCode.status !== 0) {
+      nextStatus = updatedUsedNum >= regCode.maxActive ? 4 : 2;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. 删除物理绑定表关联
+      await tx.registerCodeDevice.deleteMany({
+        where: {
+          registerCodeId: regCode.id,
+          deviceId,
+        },
+      });
+
+      // 2. 插入解绑历史记录
+      await tx.registerCodeUnbindHistory.create({
+        data: {
+          registerCodeId: regCode.id,
+          deviceId,
+          deviceName,
+          boundAt,
+          unbindAt: new Date(),
+          lastIp,
+          unbindReason: operator,
+        },
+      });
+
+      // 3. 更新主表状态
+      await tx.registerCode.update({
+        where: { id: regCode.id },
+        data: {
+          bindDevices: devices as unknown as Prisma.InputJsonValue,
+          usedNum: updatedUsedNum,
+          status: nextStatus,
+        },
+      });
+    });
+
+    // 4. 通知 Kick 掉物理长连接设备
+    this.tcpSocketService.forceKickDevice(deviceId);
+
+    await this.recordActionLog(
+      regCode.code,
+      'UNBIND',
+      `设备物理解绑。设备ID: [${deviceId}]`,
+      operator,
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * 将设备加入卡密黑名单
+   */
+  async addDeviceToBlacklist(code: string, deviceId: string, deviceName?: string, reason?: string, operator: string = 'user') {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    let finalDeviceName = deviceName;
+    let devices: BindDeviceItem[] = [];
+    try {
+      devices = typeof regCode.bindDevices === 'string'
+        ? JSON.parse(regCode.bindDevices)
+        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
+    } catch (e) {
+      devices = [];
+    }
+
+    const boundDev = devices.find(d => d.deviceId === deviceId);
+    if (boundDev && !finalDeviceName) {
+      finalDeviceName = boundDev.name || `设备 (${deviceId.slice(0, 8)})`;
+    }
+
+    await this.prisma.registerCodeBlacklist.upsert({
+      where: {
+        registerCodeId_deviceId: {
+          registerCodeId: regCode.id,
+          deviceId,
+        },
+      },
+      create: {
+        registerCodeId: regCode.id,
+        deviceId,
+        deviceName: finalDeviceName || `设备 (${deviceId.slice(0, 8)})`,
+        reason,
+      },
+      update: {
+        deviceName: finalDeviceName || undefined,
+        reason,
+        blockedAt: new Date(),
+      },
+    });
+
+    // 若当前设备绑定于此激活码，强制解绑
+    const isBound = devices.some(d => d.deviceId === deviceId);
+    if (isBound) {
+      await this.unbindSingleDevice(code, deviceId, operator);
+    } else {
+      this.tcpSocketService.forceKickDevice(deviceId);
+    }
+
+    await this.recordActionLog(
+      regCode.code,
+      'BLACKLIST_ADD',
+      `拉黑绑定设备 [${deviceId}]。原因: ${reason || '无'}`,
+      operator,
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * 解除设备黑名单
+   */
+  async removeDeviceFromBlacklist(code: string, deviceId: string, operator: string = 'user') {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    await this.prisma.registerCodeBlacklist.deleteMany({
+      where: {
+        registerCodeId: regCode.id,
+        deviceId,
+      },
+    });
+
+    await this.recordActionLog(
+      regCode.code,
+      'BLACKLIST_REMOVE',
+      `将设备 [${deviceId}] 移出黑名单`,
+      operator,
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * 查询黑名单列表
+   */
+  async getBlacklist(code: string) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+    return this.prisma.registerCodeBlacklist.findMany({
+      where: { registerCodeId: regCode.id },
+      orderBy: { blockedAt: 'desc' },
+    });
+  }
+
+  /**
+   * 查询解绑历史记录
+   */
+  async getUnbindHistory(code: string) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+    return this.prisma.registerCodeUnbindHistory.findMany({
+      where: { registerCodeId: regCode.id },
+      orderBy: { unbindAt: 'desc' },
+    });
   }
 }
 

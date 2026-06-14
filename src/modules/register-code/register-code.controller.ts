@@ -338,6 +338,79 @@ export class RegisterCodeController {
   async getAlertHistory() {
     return this.registerCodeService.getAlertHistory();
   }
+
+  /**
+   * 物理设备解绑接口 (用户/管理员通用)
+   */
+  @Patch('my-devices/unbind')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '物理设备解绑', description: '从注册码绑定列表中解绑单个特定设备，并下发下线 Kick 指令。' })
+  async unbindSingleDevice(
+    @Body() body: { code: string; deviceId: string; operator?: string },
+  ) {
+    if (!body.code || !body.deviceId) {
+      throw new BadRequestException('参数 code 和 deviceId 不能为空');
+    }
+    return this.registerCodeService.unbindSingleDevice(body.code, body.deviceId, body.operator || 'user');
+  }
+
+  /**
+   * 将特定物理设备加入该激活码黑名单
+   */
+  @Post('my-devices/blacklist')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '添加设备至激活码黑名单', description: '将物理设备加入此卡密黑名单，若设备当前正处于绑定状态，则执行强制解绑下线。' })
+  async addDeviceToBlacklist(
+    @Body() body: { code: string; deviceId: string; deviceName?: string; reason?: string; operator?: string },
+  ) {
+    if (!body.code || !body.deviceId) {
+      throw new BadRequestException('参数 code 和 deviceId 不能为空');
+    }
+    return this.registerCodeService.addDeviceToBlacklist(body.code, body.deviceId, body.deviceName, body.reason, body.operator || 'user');
+  }
+
+  /**
+   * 将物理设备移出激活码黑名单
+   */
+  @Delete('my-devices/blacklist')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '将物理设备移出卡密黑名单', description: '解除拉黑，允许该设备再次进行登录鉴权与绑定。' })
+  async removeDeviceFromBlacklist(
+    @Query('code') code: string,
+    @Query('deviceId') deviceId: string,
+    @Query('operator') operator?: string,
+  ) {
+    if (!code || !deviceId) {
+      throw new BadRequestException('参数 code 和 deviceId 不能为空');
+    }
+    return this.registerCodeService.removeDeviceFromBlacklist(code, deviceId, operator || 'user');
+  }
+
+  /**
+   * 获取指定激活码对应的黑名单列表
+   */
+  @Get('my-devices/blacklist')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取激活码设备黑名单', description: '查询该激活码下拉黑的所有设备列表。' })
+  async getBlacklist(@Query('code') code: string) {
+    if (!code) {
+      throw new BadRequestException('参数 code 不能为空');
+    }
+    return this.registerCodeService.getBlacklist(code);
+  }
+
+  /**
+   * 获取指定激活码对应的设备绑定与解绑历史记录
+   */
+  @Get('my-devices/history')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取设备解绑历史记录', description: '查询该激活码名下所有解绑历史审计记录。' })
+  async getUnbindHistory(@Query('code') code: string) {
+    if (!code) {
+      throw new BadRequestException('参数 code 不能为空');
+    }
+    return this.registerCodeService.getUnbindHistory(code);
+  }
 }
 
 

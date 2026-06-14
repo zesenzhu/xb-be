@@ -20,6 +20,7 @@ interface ClientConnection {
   appName?: string;
   pingCount?: number;
   isExiting?: boolean; // 标记是否优雅退出 (OnScriptExit)
+  connectedAt?: Date;  // 物理连接握手时间
   deviceInfo?: {
     name: string;
     model: string;
@@ -36,6 +37,8 @@ interface ClientConnection {
     vpnStatus?: number;
     scriptMemory?: number;        // 脚本当前占用内存 (KB)
     isSwitchingAccount?: number;  // 是否处于换号切号状态 (1: 是)
+    currentTask?: string;         // 当前执行任务名称
+    runningTime?: number;         // 脚本已运行时间 (秒)
   };
 }
 
@@ -305,6 +308,8 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       vpnStatus?: number;
       scriptMemory?: number;
       isSwitchingAccount?: number;
+      currentTask?: string;
+      runningTime?: number;
       logs?: Array<{
         level: 'INFO' | 'WARN' | 'ERROR';
         module: string;
@@ -348,6 +353,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           appName,
           pingCount: 0,
           deviceInfo,
+          connectedAt: new Date(),
         });
 
         // 重新连回成功，立即清除并取消 pending 的意外下线延迟告警评估
@@ -448,6 +454,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       if (data.isSwitchingAccount !== undefined) {
         (connection.deviceInfo as any).isSwitchingAccount = Number(data.isSwitchingAccount);
       }
+      if (data.currentTask !== undefined) {
+        connection.deviceInfo.currentTask = String(data.currentTask);
+      }
+      if (data.runningTime !== undefined) {
+        connection.deviceInfo.runningTime = Number(data.runningTime);
+      }
 
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
 
@@ -521,6 +533,8 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         payload: {
           battery: connection.deviceInfo.battery || 100,
           frontApp: curFront || 'unknown',
+          currentTask: connection.deviceInfo.currentTask || '常规挂机',
+          runningTime: connection.deviceInfo.runningTime || 0,
           isLocked: curLocked === 1,
           vpnStatus: curVpn === 1,
           scriptMemory: (connection.deviceInfo as any).scriptMemory || 0,

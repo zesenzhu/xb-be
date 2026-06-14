@@ -89,6 +89,8 @@ model RegisterCode {
   alertConfig     Json?       @default("{\"offline\":true,\"launcher\":true,\"locked\":false,\"vpn\":true,\"errorLog\":true,\"memoryLimit\":153600}") @map("alert_config") // 警报订阅配置开关
 
   logs            ScriptLog[]
+  unbindHistories RegisterCodeUnbindHistory[]
+  blacklists      RegisterCodeBlacklist[]
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
@@ -110,6 +112,41 @@ model RegisterCodeDevice {
   @@unique([registerCodeId, deviceId])
   @@index([deviceId])
   @@map("register_code_device")
+}
+
+// ==========================================
+// 2.2 激活码绑定历史记录与拉黑名单
+// ==========================================
+
+model RegisterCodeUnbindHistory {
+  id             String       @id @default(uuid())
+  registerCodeId String       @map("register_code_id")
+  deviceId       String       @map("device_id")
+  deviceName     String?      @map("device_name")
+  boundAt        DateTime     @map("bound_at")
+  unbindAt       DateTime     @default(now()) @map("unbind_at")
+  lastIp         String?      @map("last_ip")
+  unbindReason   String       @default("user") @map("unbind_reason") // user, admin
+
+  registerCode   RegisterCode @relation(fields: [registerCodeId], references: [id], onDelete: Cascade)
+
+  @@index([registerCodeId])
+  @@index([deviceId])
+  @@map("register_code_unbind_history")
+}
+
+model RegisterCodeBlacklist {
+  id             String       @id @default(uuid())
+  registerCodeId String       @map("register_code_id")
+  deviceId       String       @map("device_id")
+  deviceName     String?      @map("device_name")
+  blockedAt      DateTime     @default(now()) @map("blocked_at")
+  reason         String?
+
+  registerCode   RegisterCode @relation(fields: [registerCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([registerCodeId, deviceId])
+  @@map("register_code_blacklist")
 }
 
 // ==========================================
