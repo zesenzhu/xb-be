@@ -565,9 +565,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         try {
           // 批量构建 ScriptLog 数据并落库
           const insertData = logsList.map((log: any) => {
-            // 💡 解决物理时间戳被 TickCount() 错误还原为 1970 年的 Bug：
-            // 如果日志本身有 time 字段 (HH:mm:ss 格式，代表真实时间)，我们将其与当前服务器日期拼接，还原出精确的真实时间戳
-            const logDate = new Date();
+            let logDate = new Date();
             if (log.time && typeof log.time === 'string') {
               const timeParts = log.time.split(':');
               if (timeParts.length === 3) {
@@ -575,7 +573,28 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
                 const minutes = parseInt(timeParts[1], 10);
                 const seconds = parseInt(timeParts[2], 10);
                 if (!isNaN(hours) && !isNaN(minutes) && !isNaN(seconds)) {
-                  logDate.setHours(hours, minutes, seconds, 0);
+                  try {
+                    // 获取当前服务器在东八区（北京时间）对应的年月日
+                    const formatter = new Intl.DateTimeFormat('en-US', {
+                      timeZone: 'Asia/Shanghai',
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                    });
+                    const parts = formatter.formatToParts(new Date());
+                    const year = parts.find((p) => p.type === 'year')?.value;
+                    const month = parts.find((p) => p.type === 'month')?.value;
+                    const day = parts.find((p) => p.type === 'day')?.value;
+
+                    if (year && month && day) {
+                      // 拼接为标准的东八区 ISO 字符串，转换为绝对的 Date 对象
+                      logDate = new Date(`${year}-${month}-${day}T${log.time}+08:00`);
+                    } else {
+                      logDate.setHours(hours, minutes, seconds, 0);
+                    }
+                  } catch {
+                    logDate.setHours(hours, minutes, seconds, 0);
+                  }
                 }
               }
             }

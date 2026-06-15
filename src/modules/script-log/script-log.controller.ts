@@ -196,7 +196,10 @@ export class ScriptLogController {
 
         return {
           id: item.id,
-          time: item.timestamp.toTimeString().split(' ')[0],
+          time: item.timestamp.toLocaleTimeString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            hour12: false,
+          }),
           level: item.level,
           module: moduleName,
           content: cleanContent,
@@ -243,7 +246,10 @@ export class ScriptLogController {
 
       return {
         id: item.id,
-        time: item.timestamp.toTimeString().split(' ')[0],
+        time: item.timestamp.toLocaleTimeString('zh-CN', {
+          timeZone: 'Asia/Shanghai',
+          hour12: false,
+        }),
         level: item.level,
         module: moduleName,
         content: cleanContent,
@@ -297,7 +303,7 @@ export class ScriptLogController {
 
     // 4. 流式写入 Response
     for (const log of uniqueLogs) {
-      const formattedLine = `[${log.timestamp.toLocaleString('zh-CN')}] [${log.level}] ${log.message}\n`;
+      const formattedLine = `[${log.timestamp.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}] [${log.level}] ${log.message}\n`;
       res.write(formattedLine);
     }
     
