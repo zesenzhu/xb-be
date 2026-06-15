@@ -114,6 +114,21 @@ export class RegisterCodeController {
   }
 
   /**
+   * 物理设备解绑接口 (用户/管理员通用)
+   */
+  @Patch('my-devices/unbind')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '物理设备解绑', description: '从注册码绑定列表中解绑单个特定设备，并下发下线 Kick 指令。' })
+  async unbindSingleDevice(
+    @Body() body: { code: string; deviceId: string; operator?: string },
+  ) {
+    if (!body.code || !body.deviceId) {
+      throw new BadRequestException('参数 code 和 deviceId 不能为空');
+    }
+    return this.registerCodeService.unbindSingleDevice(body.code, body.deviceId, body.operator || 'user');
+  }
+
+  /**
    * 3. 快捷更新激活码启用/禁用状态
    */
   @Patch(':id/status')
@@ -340,7 +355,7 @@ export class RegisterCodeController {
     if (!body.code) {
       throw new BadRequestException('参数 code 不能为空');
     }
-    return this.registerCodeService.updateAlertConfig(body.code, body.alertEmail, body.alertConfig);
+    return this.registerCodeService.updateAlertConfig(body.code, body.alertEmail || '', body.alertConfig);
   }
 
   /**
@@ -353,20 +368,7 @@ export class RegisterCodeController {
     return this.registerCodeService.getAlertHistory();
   }
 
-  /**
-   * 物理设备解绑接口 (用户/管理员通用)
-   */
-  @Patch('my-devices/unbind')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '物理设备解绑', description: '从注册码绑定列表中解绑单个特定设备，并下发下线 Kick 指令。' })
-  async unbindSingleDevice(
-    @Body() body: { code: string; deviceId: string; operator?: string },
-  ) {
-    if (!body.code || !body.deviceId) {
-      throw new BadRequestException('参数 code 和 deviceId 不能为空');
-    }
-    return this.registerCodeService.unbindSingleDevice(body.code, body.deviceId, body.operator || 'user');
-  }
+
 
   /**
    * 将特定物理设备加入该激活码黑名单
