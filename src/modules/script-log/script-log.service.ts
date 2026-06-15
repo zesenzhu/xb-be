@@ -16,34 +16,55 @@ export class ScriptLogService implements OnApplicationBootstrap {
   constructor(private readonly prisma: PrismaService) {}
 
   onApplicationBootstrap() {
-    // 启动时立即执行一次清理，之后每 24 小时执行一次
+    // 启动时立即执行一次清理，之后每 10 分钟执行一次
     this.cleanOldLogs();
     this.cleanTimer = setInterval(() => {
       this.cleanOldLogs();
-    }, 24 * 60 * 60 * 1000);
+    }, 10 * 60 * 1000);
   }
 
   /**
-   * 自动清理 7 天前的历史日志
+   * 自动分级清理历史日志：
+   * 1. 裁剪所有设备的普通 INFO 日志，仅保留最新的 100 条。
+   * 2. 删除 24 小时前的 WARN / ERROR 日志。
    */
   async cleanOldLogs() {
     try {
-      const expirationDate = new Date();
-      expirationDate.setDate(expirationDate.getDate() - 7);
+      // 1. INFO 日志单设备 100 条最新裁剪
+      const infoCleanup = await this.prisma.$executeRaw`
+        DELETE FROM "script_log" 
+        WHERE "level" = 'INFO' 
+          AND "id" NOT IN (
+            SELECT "id" 
+            FROM (
+              SELECT "id", ROW_NUMBER() OVER (PARTITION BY "device_id" ORDER BY "timestamp" DESC) as row_num
+              FROM "script_log"
+              WHERE "level" = 'INFO'
+            ) t
+            WHERE t.row_num <= 100
+          )
+      `;
 
-      const result = await this.prisma.scriptLog.deleteMany({
+      // 2. ERROR/WARN 日志 24 小时过期清理
+      const expirationDate = new Date();
+      expirationDate.setHours(expirationDate.getHours() - 24);
+
+      const errResult = await this.prisma.scriptLog.deleteMany({
         where: {
+          level: { in: ['WARN', 'ERROR'] },
           timestamp: {
             lt: expirationDate,
           },
         },
       });
 
-      if (result.count > 0) {
-        this.logger.log(`[定时任务] 成功清理 7 天前过期历史日志, 影响行数: ${result.count} 行`);
+      if (infoCleanup > 0 || errResult.count > 0) {
+        this.logger.log(
+          `[定时任务] 日志清理完成。清理INFO超限日志: ${infoCleanup} 行; 清理WARN/ERROR过期日志: ${errResult.count} 行`,
+        );
       }
     } catch (err) {
-      this.logger.error('[定时任务] 清理过期历史日志出错:', err);
+      this.logger.error('[定时任务] 分级清理过期与超限历史日志出错:', err);
     }
   }
 }

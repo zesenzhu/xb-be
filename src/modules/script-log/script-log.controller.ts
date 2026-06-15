@@ -14,13 +14,16 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  Res,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
-import { Prisma } from '@prisma/client';
 import { Observable, merge, interval } from 'rxjs';
 import { filter, map, finalize } from 'rxjs/operators';
+import { AdminGuard } from '../debug/admin.guard';
 
 @ApiTags('ScriptLog 日志管理')
 @Controller('logs')
@@ -144,14 +147,73 @@ export class ScriptLogController {
     @Query('registerCodeId') registerCodeId?: string,
     @Query('level') level?: string,
   ) {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // 💡 1. 针对单个设备进行分级裁剪与混合拉取（INFO 100条 + ERROR 24小时）
+    if (deviceId) {
+      // 1.1 获取该设备最新的 100 条 INFO 日志
+      const infoQuery = this.prisma.scriptLog.findMany({
+        where: {
+          deviceId,
+          level: 'INFO',
+          ...(registerCodeId ? { registerCodeId } : {}),
+        },
+        orderBy: { timestamp: 'desc' },
+        take: 100,
+      });
+
+      // 1.2 获取该设备最近 24 小时内所有的 WARN/ERROR 日志
+      const errQuery = this.prisma.scriptLog.findMany({
+        where: {
+          deviceId,
+          level: { in: ['WARN', 'ERROR'] },
+          timestamp: { gte: oneDayAgo },
+          ...(registerCodeId ? { registerCodeId } : {}),
+        },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      const [infoLogs, errLogs] = await Promise.all([infoQuery, errQuery]);
+
+      // 1.3 在内存中合并并按 ID 去重
+      const allLogs = [...infoLogs, ...errLogs];
+      const uniqueLogs = Array.from(
+        new Map(allLogs.map((item) => [item.id, item])).values(),
+      );
+      
+      // 按时间戳从最新到最老倒序排列
+      uniqueLogs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+      // 1.4 对齐前端展示模型
+      const formattedList = uniqueLogs.map((item) => {
+        let moduleName = 'EXECUTOR';
+        let cleanContent = item.message;
+        const match = item.message.match(/^\[(.*?)\] (.*)$/);
+        if (match) {
+          moduleName = match[1];
+          cleanContent = match[2];
+        }
+
+        return {
+          id: item.id,
+          time: item.timestamp.toTimeString().split(' ')[0],
+          level: item.level,
+          module: moduleName,
+          content: cleanContent,
+        };
+      });
+
+      return { list: formattedList, total: formattedList.length };
+    }
+
+    // 💡 2. 兜底：全局日志审计，退回 24 小时内普通分页查询
     const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
     const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 20;
     const skip = (pageNum - 1) * limitNum;
 
-    const where: Prisma.ScriptLogWhereInput = {};
-    if (deviceId) {
-      where.deviceId = deviceId;
-    }
+    const where: Prisma.ScriptLogWhereInput = {
+      timestamp: { gte: oneDayAgo }, // 强制限制 24 小时内
+    };
     if (registerCodeId) {
       where.registerCodeId = registerCodeId;
     }
@@ -171,7 +233,6 @@ export class ScriptLogController {
 
     // 对齐前端展示模型
     const formattedList = list.map((item) => {
-      // 兼容历史老数据或日志前缀解析模块名
       let moduleName = 'EXECUTOR';
       let cleanContent = item.message;
       const match = item.message.match(/^\[(.*?)\] (.*)$/);
@@ -190,5 +251,56 @@ export class ScriptLogController {
     });
 
     return { list: formattedList, total };
+  }
+
+  @Get('export')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: '管理员导出指定设备24小时分级日志' })
+  async exportDeviceLogs(
+    @Query('deviceId') deviceId: string,
+    @Res() res: any,
+  ) {
+    if (!deviceId) {
+      throw new BadRequestException('参数 deviceId 不能为空');
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="device-${deviceId}-24h.log"`);
+
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // 1. 获取该设备最新的 100 条 INFO 日志
+    const infoLogs = await this.prisma.scriptLog.findMany({
+      where: { deviceId, level: 'INFO' },
+      orderBy: { timestamp: 'desc' },
+      take: 100,
+    });
+
+    // 2. 获取该设备最近 24 小时内所有的 WARN/ERROR 日志
+    const errLogs = await this.prisma.scriptLog.findMany({
+      where: {
+        deviceId,
+        level: { in: ['WARN', 'ERROR'] },
+        timestamp: { gte: oneDayAgo },
+      },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    // 3. 在内存中合并并按 ID 去重
+    const allLogs = [...infoLogs, ...errLogs];
+    const uniqueLogs = Array.from(
+      new Map(allLogs.map((item) => [item.id, item])).values(),
+    );
+    
+    // 正序排列
+    uniqueLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+    // 4. 流式写入 Response
+    for (const log of uniqueLogs) {
+      const formattedLine = `[${log.timestamp.toLocaleString('zh-CN')}] [${log.level}] ${log.message}\n`;
+      res.write(formattedLine);
+    }
+    
+    res.end();
   }
 }

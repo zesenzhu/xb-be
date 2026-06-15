@@ -114,42 +114,6 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
   onApplicationBootstrap() {
     this.startServer();
-    this.startLogCleanupJob();
-  }
-
-  /**
-   * 定时清理历史日志：每 24 小时运行一次，清理 7 天前的历史日志
-   */
-  private startLogCleanupJob() {
-    this.cleanupOldLogs().catch((err) => {
-      this.logger.error('启动时清理历史日志失败:', err);
-    });
-
-    // 每天执行一次
-    setInterval(() => {
-      this.cleanupOldLogs().catch((err) => {
-        this.logger.error('定时清理历史日志失败:', err);
-      });
-    }, 24 * 60 * 60 * 1000);
-  }
-
-  private async cleanupOldLogs() {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    this.logger.log(`【日志清理】开始清理 [${sevenDaysAgo.toISOString()}] 之前的历史日志...`);
-    try {
-      const deleteResult = await this.prisma.scriptLog.deleteMany({
-        where: {
-          timestamp: {
-            lt: sevenDaysAgo,
-          },
-        },
-      });
-      this.logger.log(`【日志清理】清理完毕，共删除 ${deleteResult.count} 条历史日志`);
-    } catch (err) {
-      this.logger.error('【日志清理】执行清理异常:', err);
-    }
   }
 
   onApplicationShutdown() {
@@ -589,7 +553,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         connection.isExiting = true;
       }
 
-      const logsList = data.logs || [];
+      let logsList = data.logs || [];
+      if (logsList.length > 50) {
+        this.logger.warn(`设备 [${deviceId}] 批量上报日志条数超限 (${logsList.length} 条)，已截断至前 50 条`);
+        logsList = logsList.slice(0, 50);
+      }
+
       if (logsList.length > 0) {
         this.logger.log(`接收到设备 [${deviceId}] 批量归档日志，类型: ${action}，行数: ${logsList.length}`);
         
@@ -611,11 +580,16 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
               }
             }
 
+            let contentStr = log.content || '';
+            if (contentStr.length > 300) {
+              contentStr = contentStr.substring(0, 300) + '...[已截断]';
+            }
+
             return {
               deviceId,
               registerCodeId: connection.codeId,
               level: log.level || 'INFO',
-              message: `[${log.module || 'CLIENT'}] ${log.content || ''}`,
+              message: `[${log.module || 'CLIENT'}] ${contentStr}`,
               timestamp: logDate,
             };
           });
