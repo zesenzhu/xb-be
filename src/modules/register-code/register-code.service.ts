@@ -1394,19 +1394,34 @@ export class RegisterCodeService {
    * 解绑单个绑定的物理设备
    */
   async unbindSingleDevice(code: string, deviceId: string, operator: string = 'user') {
-    const regCode = await this.prisma.registerCode.findUnique({
+    console.log('[DEBUG Unbind] input code:', JSON.stringify(code), 'deviceId:', deviceId, 'operator:', operator);
+    
+    // 1. 尝试直接查询
+    let regCode = await this.prisma.registerCode.findUnique({
       where: { code },
     });
+
+    // 2. 防御性二次查询（消除空格与大小写影响）
+    if (!regCode && code) {
+      const cleanCode = code.trim().toUpperCase();
+      if (cleanCode !== code) {
+        regCode = await this.prisma.registerCode.findUnique({
+          where: { code: cleanCode },
+        });
+      }
+    }
 
     if (!regCode) {
       throw new NotFoundException('该注册码不存在！');
     }
 
+    const activeRegCode = regCode;
+
     let devices: BindDeviceItem[] = [];
     try {
-      devices = typeof regCode.bindDevices === 'string'
-        ? JSON.parse(regCode.bindDevices)
-        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
+      devices = typeof activeRegCode.bindDevices === 'string'
+        ? JSON.parse(activeRegCode.bindDevices)
+        : (activeRegCode.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       devices = [];
     }
@@ -1424,18 +1439,18 @@ export class RegisterCodeService {
     const deviceName = targetDev.name || `设备 (${deviceId.slice(0, 8)})`;
 
     const updatedUsedNum = devices.length;
-    let nextStatus = regCode.status;
-    if (regCode.expireTime && new Date() > new Date(regCode.expireTime)) {
+    let nextStatus = activeRegCode.status;
+    if (activeRegCode.expireTime && new Date() > new Date(activeRegCode.expireTime)) {
       nextStatus = 3;
-    } else if (regCode.status !== 0) {
-      nextStatus = updatedUsedNum >= regCode.maxActive ? 4 : 2;
+    } else if (activeRegCode.status !== 0) {
+      nextStatus = updatedUsedNum >= activeRegCode.maxActive ? 4 : 2;
     }
 
     await this.prisma.$transaction(async (tx) => {
       // 1. 删除物理绑定表关联
       await tx.registerCodeDevice.deleteMany({
         where: {
-          registerCodeId: regCode.id,
+          registerCodeId: activeRegCode.id,
           deviceId,
         },
       });
@@ -1443,7 +1458,7 @@ export class RegisterCodeService {
       // 2. 插入解绑历史记录
       await tx.registerCodeUnbindHistory.create({
         data: {
-          registerCodeId: regCode.id,
+          registerCodeId: activeRegCode.id,
           deviceId,
           deviceName,
           boundAt,
@@ -1455,7 +1470,7 @@ export class RegisterCodeService {
 
       // 3. 更新主表状态
       await tx.registerCode.update({
-        where: { id: regCode.id },
+        where: { id: activeRegCode.id },
         data: {
           bindDevices: devices as unknown as Prisma.InputJsonValue,
           usedNum: updatedUsedNum,
@@ -1468,7 +1483,7 @@ export class RegisterCodeService {
     this.tcpSocketService.forceKickDevice(deviceId);
 
     await this.recordActionLog(
-      regCode.code,
+      activeRegCode.code,
       'UNBIND',
       `设备物理解绑。设备ID: [${deviceId}]`,
       operator,
