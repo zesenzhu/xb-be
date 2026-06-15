@@ -592,6 +592,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
                     } else {
                       logDate.setHours(hours, minutes, seconds, 0);
                     }
+
+                    // 防御性时间校验：如果合成的日志时间比当前服务器时间大过 5 分钟，说明该日志是在跨天交界处上报的昨日日志，需向前推回 1 天
+                    const now = new Date();
+                    if (logDate.getTime() > now.getTime() + 5 * 60 * 1000) {
+                      logDate.setDate(logDate.getDate() - 1);
+                    }
                   } catch {
                     logDate.setHours(hours, minutes, seconds, 0);
                   }

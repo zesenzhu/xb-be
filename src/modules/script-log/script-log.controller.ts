@@ -162,7 +162,7 @@ export class ScriptLogController {
         take: 100,
       });
 
-      // 1.2 获取该设备最近 24 小时内所有的 WARN/ERROR 日志
+      // 1.2 获取该设备最近 24 小时内最新的 100 条 WARN/ERROR 日志，防止历史旧报错淹没控制台
       const errQuery = this.prisma.scriptLog.findMany({
         where: {
           deviceId,
@@ -171,6 +171,7 @@ export class ScriptLogController {
           ...(registerCodeId ? { registerCodeId } : {}),
         },
         orderBy: { timestamp: 'desc' },
+        take: 100,
       });
 
       const [infoLogs, errLogs] = await Promise.all([infoQuery, errQuery]);
