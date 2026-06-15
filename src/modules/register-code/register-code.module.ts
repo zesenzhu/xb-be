@@ -10,11 +10,13 @@ import { RegisterCodeService } from './register-code.service';
 import { RegisterCodeController } from './register-code.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { TcpSocketModule } from '../tcp-socket/tcp-socket.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
     PrismaModule,
     forwardRef(() => TcpSocketModule),
+    NotificationModule,
   ],
   controllers: [RegisterCodeController],
   providers: [RegisterCodeService],

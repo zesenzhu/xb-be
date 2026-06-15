@@ -13,6 +13,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DebugModule } from './modules/debug/debug.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { SystemSettingModule } from './modules/system-setting/system-setting.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { SystemSettingModule } from './modules/system-setting/system-setting.mod
     DebugModule,
     UploadModule,
     SystemSettingModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

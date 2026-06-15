@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
+import * as os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 @Injectable()
 export class DashboardService {
@@ -14,6 +19,107 @@ export class DashboardService {
     private readonly prisma: PrismaService,
     private readonly tcpSocketService: TcpSocketService,
   ) {}
+
+  /**
+   * 清理过期历史日志 (供管理员维护系统)
+   */
+  async clearOldLogs(days = 30) {
+    const beforeDate = new Date();
+    beforeDate.setDate(beforeDate.getDate() - days);
+
+    const result = await this.prisma.scriptLog.deleteMany({
+      where: {
+        timestamp: {
+          lt: beforeDate,
+        },
+      },
+    });
+
+    this.logger.log(`[系统维护] 管理员手动触发了清理 ${days} 天前的运行日志，成功删除 ${result.count} 条记录。`);
+    return {
+      success: true,
+      message: `已清理 ${days} 天前的所有运行日志，共删除 ${result.count} 条记录。`,
+      deletedCount: result.count,
+    };
+  }
+
+  /**
+   * 抓取服务器 CPU、内存、根分区磁盘及日志库总体积健康指标
+   */
+  async getServerHealth() {
+    // 1. 内存指标
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const memoryUsageRate = (usedMem / totalMem) * 100;
+
+    // 2. CPU 负载
+    const cpuCount = os.cpus().length;
+    const loadAvg = os.loadavg();
+    // 用 1 分钟平均负载估算占用率
+    const cpuUsageRate = Math.min(100, Math.round((loadAvg[0] / cpuCount) * 100));
+
+    // 3. 磁盘占用 (根分区 /)
+    let diskTotal = 'N/A';
+    let diskUsed = 'N/A';
+    let diskAvailable = 'N/A';
+    let diskUsageRate = 0;
+
+    try {
+      const { stdout } = await execAsync("df -h / | tail -1");
+      const parts = stdout.trim().split(/\s+/);
+      const usePercentPart = parts.find((p) => p.includes('%'));
+      if (usePercentPart) {
+        diskUsageRate = parseInt(usePercentPart.replace('%', ''), 10) || 0;
+      }
+      if (parts.length >= 5) {
+        diskTotal = parts[1];
+        diskUsed = parts[2];
+        diskAvailable = parts[3];
+      }
+    } catch (err: any) {
+      this.logger.warn(`获取磁盘空间异常: ${err.message}`);
+    }
+
+    // 4. 数据库日志表体积与行数
+    let logTableSize = '0 B';
+    let logTotalCount = 0;
+    try {
+      logTotalCount = await this.prisma.scriptLog.count();
+      const sizeResult: any[] = await this.prisma.$queryRawUnsafe(
+        `SELECT pg_size_pretty(pg_total_relation_size('script_log')) as size`
+      );
+      if (sizeResult && sizeResult[0]) {
+        logTableSize = sizeResult[0].size;
+      }
+    } catch (err) {
+      logTableSize = `${(logTotalCount * 0.5).toFixed(1)} KB`;
+    }
+
+    return {
+      cpu: {
+        cores: cpuCount,
+        usageRate: cpuUsageRate,
+        loadAvg,
+      },
+      memory: {
+        total: `${(totalMem / 1024 / 1024 / 1024).toFixed(1)} GB`,
+        used: `${(usedMem / 1024 / 1024 / 1024).toFixed(1)} GB`,
+        free: `${(freeMem / 1024 / 1024 / 1024).toFixed(1)} GB`,
+        usageRate: Math.round(memoryUsageRate),
+      },
+      disk: {
+        total: diskTotal,
+        used: diskUsed,
+        available: diskAvailable,
+        usageRate: diskUsageRate,
+      },
+      logs: {
+        count: logTotalCount,
+        dbSize: logTableSize,
+      },
+    };
+  }
 
   /**
    * 获取系统核心指标卡片数据
@@ -264,11 +370,12 @@ export class DashboardService {
    * 整合所有数据大包
    */
   async getOverview() {
-    const [cards, trendData, modelData, recentLogs] = await Promise.all([
+    const [cards, trendData, modelData, recentLogs, serverHealth] = await Promise.all([
       this.getOverviewCards(),
       this.getTrendData(),
       this.getModelData(),
       this.getRecentLogs(),
+      this.getServerHealth(),
     ]);
 
     return {
@@ -276,6 +383,7 @@ export class DashboardService {
       trendData,
       modelData,
       recentLogs,
+      serverHealth,
     };
   }
 }

@@ -237,3 +237,28 @@ model EmailVerifyCode {
   @@index([email])
 }
 
+// ==========================================
+// 6. 系统管理员消息通知与通报模块
+// ==========================================
+
+model SystemNotification {
+  id           String   @id @default(uuid())
+  title        String   // 通报标题，如 "服务器内存过载警报"
+  content      String   @db.Text // 描述详细
+  level        String   // 级别：INFO (一般), WARN (警告), ERROR (严重错误)
+  type         String   // 类型：code_activated, server_memory_high, device_bind 等
+  isRead       Boolean  @default(false) @map("is_read")
+  
+  // 关联属性
+  deviceId     String?  @map("device_id")
+  deviceName   String?  @map("device_name")
+  registerCode String?  @map("register_code")
+  
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("sys_notification")
+}
+

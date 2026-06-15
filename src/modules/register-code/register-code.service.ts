@@ -11,6 +11,7 @@ import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
 import * as crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
+import { NotificationService } from '../notification/notification.service';
 
 
 interface BindDeviceItem {
@@ -38,6 +39,7 @@ export class RegisterCodeService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => TcpSocketService))
     private readonly tcpSocketService: TcpSocketService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -259,6 +261,14 @@ export class RegisterCodeService {
       },
     });
     if (isBlacklisted) {
+      await this.notificationService.createNotification({
+        title: '🛡️ 黑名单拦截警告',
+        content: `黑名单设备 [${deviceId}] 尝试激活卡密 [${code}] 被系统拦截。`,
+        level: 'ERROR',
+        type: 'auth_blacklist',
+        deviceId,
+        registerCode: code,
+      });
       throw new BadRequestException('该设备已被禁止绑定此授权码！');
     }
 
@@ -313,6 +323,14 @@ export class RegisterCodeService {
           data: { status: 3 },
         });
       }
+      await this.notificationService.createNotification({
+        title: '⚠️ 尝试使用已过期卡密',
+        content: `设备 [${deviceId}] 尝试使用已过期的卡密 [${code}] 进行鉴权，连接已被拒绝。`,
+        level: 'WARN',
+        type: 'code_expired',
+        deviceId,
+        registerCode: code,
+      });
       throw new BadRequestException('该注册码已过期失效！');
     }
 
@@ -336,6 +354,14 @@ export class RegisterCodeService {
       }
     } else {
       if (record.usedNum >= record.maxActive) {
+        await this.notificationService.createNotification({
+          title: '🚨 激活卡授权设备超限',
+          content: `设备 [${deviceId}] 尝试绑定卡密 [${code}] 失败。当前已绑定 ${record.usedNum} 台设备，已达卡密授权上限 ${record.maxActive} 台。`,
+          level: 'ERROR',
+          type: 'auth_overflow',
+          deviceId,
+          registerCode: code,
+        });
         throw new BadRequestException(`绑定设备数已达上限 (${record.maxActive}台)，请在控制台解绑旧设备！`);
       }
       devices.push({
@@ -382,6 +408,31 @@ export class RegisterCodeService {
           },
         });
       });
+
+      // 绑定成功后发送提醒
+      if (!record.activatedAt) {
+        // 首次激活
+        await this.notificationService.createNotification({
+          title: '🎉 卡密首次激活成功',
+          content: `卡密 [${code}] 已被设备 [${deviceInfo?.name || deviceId}] 首次激活并绑定。`,
+          level: 'INFO',
+          type: 'code_activated',
+          deviceId,
+          deviceName: deviceInfo?.name || null,
+          registerCode: code,
+        });
+      } else {
+        // 新绑定设备
+        await this.notificationService.createNotification({
+          title: '📱 授权卡绑定新设备',
+          content: `卡密 [${code}] 成功绑定了新设备 [${deviceInfo?.name || deviceId}]。当前绑定数: ${updatedUsedNum}/${record.maxActive}。`,
+          level: 'INFO',
+          type: 'device_bind',
+          deviceId,
+          deviceName: deviceInfo?.name || null,
+          registerCode: code,
+        });
+      }
     } else {
       // 已绑定过的老设备登录直接更新主表活跃状态即可
       await this.prisma.registerCode.update({
@@ -531,6 +582,13 @@ export class RegisterCodeService {
       },
     });
     await this.recordActionLog(updated.code, 'UNBIND', '强行解绑该卡所有绑定物理设备');
+    await this.notificationService.createNotification({
+      title: '🔓 授权设备强制解绑',
+      content: `已成功强制解绑卡密 [${updated.code}] 下的所有物理设备。`,
+      level: 'INFO',
+      type: 'device_unbind',
+      registerCode: updated.code,
+    });
     return updated;
   }
 
