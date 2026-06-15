@@ -9,7 +9,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, H
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { RegisterCodeService } from './register-code.service';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsObject } from 'class-validator';
 
 export class VerifyRegisterCodeDto {
   @IsString()
@@ -19,6 +19,20 @@ export class VerifyRegisterCodeDto {
   @IsString()
   @IsNotEmpty()
   deviceId: string;
+}
+
+export class UpdateMyAlertDto {
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @IsString()
+  @IsOptional()
+  alertEmail?: string;
+
+  @IsObject()
+  @IsOptional()
+  alertConfig?: any;
 }
 
 
@@ -321,7 +335,7 @@ export class RegisterCodeController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '更新激活码警报配置', description: '更新报警接收邮箱及选择的订阅事件' })
   async updateMyAlert(
-    @Body() body: { code: string; alertEmail: string; alertConfig: any }
+    @Body() body: UpdateMyAlertDto
   ) {
     if (!body.code) {
       throw new BadRequestException('参数 code 不能为空');
