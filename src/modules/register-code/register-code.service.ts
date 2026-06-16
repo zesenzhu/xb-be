@@ -168,6 +168,7 @@ export class RegisterCodeService {
         rateLimit: 5, // 兼容原接口 QPS
         deviceId: firstDevice,
         deviceIds: devices.map((d) => d.deviceId),
+        bindDevices: devices,
         status: statusStr,
         activatedAt: item.activatedAt ? item.activatedAt.toISOString() : null,
         expiresAt: item.expireTime ? item.expireTime.toISOString() : null,
