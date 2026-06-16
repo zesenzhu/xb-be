@@ -72,7 +72,7 @@ export class RegisterCodeController {
     @Query('source') source?: string,
     @Query('expireStart') expireStart?: string,
     @Query('expireEnd') expireEnd?: string,
-  ) {
+  ): Promise<any> {
     const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
     const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 10;
     

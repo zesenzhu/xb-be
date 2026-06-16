@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx';
 import { NotificationService } from '../notification/notification.service';
 
 
-interface BindDeviceItem {
+export interface BindDeviceItem {
   deviceId: string;
   activatedAt: string;
   lastActiveAt: string;
