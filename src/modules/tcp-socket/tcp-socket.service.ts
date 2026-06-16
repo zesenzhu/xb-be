@@ -659,7 +659,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   }
 
   /**
-   * 网页端打开日志页面，增加订阅计数器，若从 0 -> 1，则下发命令开启设备端的日志传输
+   * 网页端打开日志页面，增加订阅计数器，若从 0 -> 1，且无全局大屏监视，则下发命令开启设备端的日志传输
    */
   public addViewer(deviceId: string) {
     const current = this.logStreamViewers.get(deviceId) || 0;
@@ -668,14 +668,19 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     if (current === 0) {
       const connection = this.activeConnections.get(deviceId);
       if (connection) {
-        this.logger.log(`检测到网页端已打开日志视窗，向设备 [${deviceId}] 下发：start_log_stream`);
-        connection.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
+        const hasWebClient = connection.code ? this.activeWebClients.has(connection.code) : false;
+        if (!hasWebClient) {
+          this.logger.log(`检测到网页端已打开日志视窗，且当前无全局大屏监视，向设备 [${deviceId}] 下发：start_log_stream`);
+          connection.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
+        } else {
+          this.logger.log(`网页端已打开日志视窗，设备 [${deviceId}] 当前已处于全局大屏监视状态，无需重复下发 start_log_stream`);
+        }
       }
     }
   }
 
   /**
-   * 网页端关闭/离开日志页面，减少订阅计数器，若降至 0，下发命令通知设备停止上传以减压
+   * 网页端关闭/离开日志页面，减少订阅计数器，若降至 0，且无全局大屏监视，则下发命令通知设备停止上传以减压
    */
   public removeViewer(deviceId: string) {
     const current = this.logStreamViewers.get(deviceId) || 0;
@@ -683,8 +688,13 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       this.logStreamViewers.delete(deviceId);
       const connection = this.activeConnections.get(deviceId);
       if (connection) {
-        this.logger.log(`检测到无网页端实时收听，向设备 [${deviceId}] 下发：stop_log_stream`);
-        connection.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
+        const hasWebClient = connection.code ? this.activeWebClients.has(connection.code) : false;
+        if (!hasWebClient) {
+          this.logger.log(`检测到无网页端实时收听，且当前无全局大屏监视，向设备 [${deviceId}] 下发：stop_log_stream`);
+          connection.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
+        } else {
+          this.logger.log(`检测到网页端单设备监听已移除，但由于当前该注册码存在全局大屏监视，设备 [${deviceId}] 保持日志上报`);
+        }
       }
     } else {
       this.logStreamViewers.set(deviceId, current - 1);
@@ -772,15 +782,17 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     // 找出该 code 下所有在线设备，通知其开始上报
     for (const [deviceId, conn] of this.activeConnections.entries()) {
       if (conn.code === code) {
-        this.logger.log(`检测到网页端已打开全局监视，向设备 [${deviceId}] 下发：start_log_stream`);
-        conn.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
+        const viewerCount = this.logStreamViewers.get(deviceId) || 0;
+        if (viewerCount === 0) {
+          this.logger.log(`检测到网页端已打开全局监视，向设备 [${deviceId}] 下发：start_log_stream`);
+          conn.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
+        } else {
+          this.logger.log(`网页端已打开全局监视，但由于设备 [${deviceId}] 存在网页端单设备收听，保持上报状态`);
+        }
       }
     }
   }
 
-  /**
-   * 网页端移出/取消全局长连接监视
-   */
   /**
    * 网页端移出/取消全局长连接监视
    */
@@ -789,8 +801,13 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     // 找出该 code 下所有在线设备，通知其停止上报以省电
     for (const [deviceId, conn] of this.activeConnections.entries()) {
       if (conn.code === code) {
-        this.logger.log(`检测到网页端已关闭全局监视，向设备 [${deviceId}] 下发：stop_log_stream`);
-        conn.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
+        const viewerCount = this.logStreamViewers.get(deviceId) || 0;
+        if (viewerCount === 0) {
+          this.logger.log(`检测到网页端已关闭全局监视，向设备 [${deviceId}] 下发：stop_log_stream`);
+          conn.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
+        } else {
+          this.logger.log(`网页端已关闭全局监视，但由于设备 [${deviceId}] 仍存在网页端单设备收听，保持日志上报`);
+        }
       }
     }
   }
