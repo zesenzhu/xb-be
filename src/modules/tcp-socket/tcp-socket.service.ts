@@ -39,6 +39,7 @@ interface ClientConnection {
     isSwitchingAccount?: number;  // 是否处于换号切号状态 (1: 是)
     currentTask?: string;         // 当前执行任务名称
     runningTime?: number;         // 脚本已运行时间 (秒)
+    currentAccount?: string;      // 当前运行账号
   };
 }
 
@@ -305,6 +306,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       isSwitchingAccount?: number;
       currentTask?: string;
       runningTime?: number;
+      currentAccount?: string;
       logs?: Array<{
         level: 'INFO' | 'WARN' | 'ERROR';
         module: string;
@@ -455,6 +457,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       if (data.runningTime !== undefined) {
         connection.deviceInfo.runningTime = Number(data.runningTime);
       }
+      if (data.currentAccount !== undefined) {
+        connection.deviceInfo.currentAccount = String(data.currentAccount);
+      }
 
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
 
@@ -529,6 +534,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           battery: connection.deviceInfo.battery || 100,
           frontApp: curFront || 'unknown',
           currentTask: connection.deviceInfo.currentTask || '常规挂机',
+          currentAccount: connection.deviceInfo.currentAccount || '未登录',
           runningTime: connection.deviceInfo.runningTime || 0,
           isLocked: curLocked === 1,
           vpnStatus: curVpn === 1,
