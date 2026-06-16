@@ -253,6 +253,12 @@ export class RegisterCodeService {
    * 客户端免密登录激活校验状态机
    */
   async activateCode(code: string, deviceId: string, appName?: string, deviceInfo?: any) {
+    if (deviceInfo && typeof deviceInfo === 'object') {
+      const info = deviceInfo as Record<string, any>;
+      if (info.ip === 'error' || info.ip === 'null') {
+        info.ip = '0.0.0.0';
+      }
+    }
     // 前置拉黑拦截
     const isBlacklisted = await this.prisma.registerCodeBlacklist.findFirst({
       where: {
@@ -725,37 +731,60 @@ export class RegisterCodeService {
       bindDevices = [];
     }
 
-    const list = bindDevices.map((dev) => {
-      const isOnline = this.tcpSocketService.isDeviceOnline(dev.deviceId);
-      const onlineIp = isOnline ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId) : '';
-      const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
-      const devInfo = connection?.deviceInfo || dev;
-      
-      return {
-        id: dev.deviceId,
-        name: devInfo.name || `设备终端 (${dev.deviceId.slice(0, 8)})`,
-        model: devInfo.model || '未知型号',
-        os: devInfo.os || 'ios',
-        osVersion: devInfo.osVersion || '未知版本',
-        resolution: devInfo.resolution || '未知分辨率',
-        dpi: devInfo.dpi || 0,
-        isRoot: devInfo.isRoot === 1,
-        battery: devInfo.battery !== undefined ? devInfo.battery : 100,
-        ip: onlineIp || devInfo.ip || '127.0.0.1',
-        status: isOnline ? 'online' : 'offline',
-        deviceType: devInfo.deviceType || 'unknown',
-        frontApp: devInfo.frontApp || 'unknown',
-        isLocked: devInfo.isLocked === 1,
-        vpnStatus: devInfo.vpnStatus === 1,
-        scriptMemory: (devInfo as any).scriptMemory || 0,
-        isSwitchingAccount: (devInfo as any).isSwitchingAccount === 1,
-        currentTask: (devInfo as any).currentTask || '离线/空闲',
-        runningTime: (devInfo as any).runningTime || 0,
-        licenseBound: regCode.code,
-        heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
-        connectedAt: isOnline && connection?.connectedAt ? connection.connectedAt.toISOString() : null,
-      };
-    });
+    const list = await Promise.all(
+      bindDevices.map(async (dev) => {
+        const isOnline = this.tcpSocketService.isDeviceOnline(dev.deviceId);
+        const onlineIp = isOnline ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId) : '';
+        const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
+        const devInfo = connection?.deviceInfo || dev;
+
+        // 对每台设备查询最新的一条 ERROR 级别日志
+        const lastErrorLog = await this.prisma.scriptLog.findFirst({
+          where: {
+            deviceId: dev.deviceId,
+            level: 'ERROR',
+          },
+          orderBy: {
+            timestamp: 'desc',
+          },
+          select: {
+            message: true,
+            timestamp: true,
+          },
+        });
+
+        return {
+          id: dev.deviceId,
+          name: devInfo.name || `设备终端 (${dev.deviceId.slice(0, 8)})`,
+          model: devInfo.model || '未知型号',
+          os: devInfo.os || 'ios',
+          osVersion: devInfo.osVersion || '未知版本',
+          resolution: devInfo.resolution || '未知分辨率',
+          dpi: devInfo.dpi || 0,
+          isRoot: devInfo.isRoot === 1,
+          battery: devInfo.battery !== undefined ? devInfo.battery : 100,
+          ip: (onlineIp && onlineIp !== 'error' && onlineIp !== 'null')
+            ? onlineIp
+            : (devInfo.ip === 'error' || devInfo.ip === 'null' ? '0.0.0.0' : devInfo.ip || '127.0.0.1'),
+          status: isOnline ? 'online' : 'offline',
+          deviceType: devInfo.deviceType || 'unknown',
+          frontApp: devInfo.frontApp || 'unknown',
+          isLocked: devInfo.isLocked === 1,
+          vpnStatus: devInfo.vpnStatus === 1,
+          scriptMemory: (devInfo as any).scriptMemory || 0,
+          isSwitchingAccount: (devInfo as any).isSwitchingAccount === 1,
+          currentTask: (devInfo as any).currentTask || '离线/空闲',
+          runningTime: (devInfo as any).runningTime || 0,
+          licenseBound: regCode.code,
+          heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
+          connectedAt: isOnline && connection?.connectedAt ? connection.connectedAt.toISOString() : null,
+          lastError: lastErrorLog ? {
+            message: lastErrorLog.message,
+            timestamp: lastErrorLog.timestamp.toISOString(),
+          } : null,
+        };
+      })
+    );
 
     return list;
   }

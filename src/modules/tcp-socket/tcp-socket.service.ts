@@ -1110,9 +1110,28 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     this.lastErrorAlertTimes.set(conn.deviceId, now);
 
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
-    const message = `业务告警：设备 [${name}] 发生运行异常。内容: ${logContent}`;
+    let message = `业务告警：设备 [${name}] 发生运行异常。内容: ${logContent}`;
+    let alertType = 'error_log_report';
+    let alertTypeName = '脚本运行卡死';
+
+    if (logContent.startsWith('CRASH_REPORT:')) {
+      alertType = 'script_crash';
+      alertTypeName = '脚本运行崩溃';
+      const taskMatch = logContent.match(/任务=\[(.*?)\]/);
+      const moduleMatch = logContent.match(/模块=\[(.*?)\]/);
+      const accountMatch = logContent.match(/账号=\[(.*?)\]/);
+      const reasonMatch = logContent.match(/原因=\[(.*?)\]/);
+      const task = taskMatch ? taskMatch[1] : '未知任务';
+      const mModule = moduleMatch ? moduleMatch[1] : '未知模块';
+      const account = accountMatch ? accountMatch[1] : '未知账号';
+      const reason = reasonMatch ? reasonMatch[1] : '未知原因';
+      const lineMatch = reason.match(/:(\d+):/);
+      const lineNo = lineMatch ? `第 ${lineMatch[1]} 行` : '未知行';
+
+      message = `崩溃警报：设备 [${name}] 正在执行 [${task}] (${mModule}) 任务时（当前账号: ${account}）发生致命崩溃。出错代码行数：${lineNo}。错误原因: ${reason}`;
+    }
     
-    this.addAlertToHistory(conn, 'error_log_report', '脚本运行卡死', message);
+    this.addAlertToHistory(conn, alertType, alertTypeName, message);
 
     const subject = `❌ 业务报警：挂机脚本发生致命异常/卡死错误 [${name}]`;
     const html = `
