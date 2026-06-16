@@ -166,6 +166,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     let buffer = '';
 
     socket.on('data', async (data) => {
+      // 防范长乱码数据流爆内存攻击，单帧缓存限制 8KB
+      if (buffer.length + data.length > 8192) {
+        this.logger.debug?.(`客户端发送的消息缓冲超限且无换行，已被强制熔断保护。`);
+        socket.destroy();
+        return;
+      }
       buffer += data.toString('utf8');
       
       // 按照换行符 \n 切割消息帧以防粘包
@@ -177,7 +183,8 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         if (line) {
           // 💡 快速熔断非 JSON 帧的非法网络扫描（如 HTTP GET / Host 扫描）
           if (line.charAt(0) !== '{') {
-            this.logger.warn(`检测到非 JSON 协议帧，已断开连接。内容: ${line.substring(0, 80)}`);
+            // 降级为 debug 级别，避免生产环境 warn 日志刷屏
+            this.logger.debug?.(`检测到非 JSON 协议帧，已断开连接。内容: ${line.substring(0, 80)}`);
             socket.destroy();
             return;
           }
@@ -260,8 +267,23 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       }
     });
 
-    socket.on('error', (err) => {
-      this.logger.error(`客户端连接发生异常: ${deviceId || '未知设备'}`, err.message);
+    socket.on('error', (err: any) => {
+      const isCommonNetError = err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ETIMEDOUT';
+      if (!deviceId) {
+        // 未认证设备（多为扫描器、健康探测）的常见断连网络错误，降级用 debug 记录或直接忽略
+        if (isCommonNetError) {
+          this.logger.debug?.(`未知设备的常规网络断开 (${err.code}): ${err.message}`);
+        } else {
+          this.logger.warn(`未知设备物理连接发生非标准异常 (${err.code || 'ERR'}): ${err.message}`);
+        }
+      } else {
+        // 已经绑定成功注册的合法客户端
+        if (isCommonNetError) {
+          this.logger.warn(`已认证设备断连 (${err.code}): 设备ID: ${deviceId}, 描述: ${err.message}`);
+        } else {
+          this.logger.error(`已认证设备连接发生严重异常: ${deviceId}`, err.message);
+        }
+      }
     });
   }
 
