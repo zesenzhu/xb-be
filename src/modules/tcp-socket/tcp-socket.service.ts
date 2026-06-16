@@ -542,6 +542,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           isSwitchingAccount: isSwitching,
           status: 'online',
           ip: this.getDeviceRemoteIp(deviceId),
+          heartbeatsCount: connection.pingCount || 0,
         },
       });
       return;
