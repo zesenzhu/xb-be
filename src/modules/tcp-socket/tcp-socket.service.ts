@@ -237,28 +237,67 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
             }
           });
 
-          // 意外下线判定：如果设备没有被标记为优雅退出且已经认证过，启用 120 秒防抖延迟评估
+          // 意外下线判定：如果设备没有被标记为优雅退出且已经认证过，启用动态防抖延迟评估
           if (!conn.isExiting) {
             if (this.offlineAlertTimers.has(id)) {
               clearTimeout(this.offlineAlertTimers.get(id));
             }
 
-            const timer = setTimeout(() => {
-              this.offlineAlertTimers.delete(id);
-              
-              // 120 秒到期，再次判定：如果该设备仍未连回（即 activeConnections 里依然不存在此 id），发送报警邮件
-              const currentConn = this.activeConnections.get(id);
-              if (!currentConn) {
-                this.handleUnexpectedOffline(conn).catch((err) => {
-                  this.logger.error(`执行离线报警评估出错: ${id}`, err);
-                });
-              } else {
-                this.logger.log(`[离线评估] 设备 [${id}] 在 120 秒防抖期内已连回，自动取消意外离线报警邮件 of 的发送。`);
-              }
-            }, 120 * 1000);
+            this.prisma.registerCode
+              .findUnique({
+                where: { code: conn.code },
+                select: { alertConfig: true },
+              })
+              .then((regCode) => {
+                const config = (regCode?.alertConfig as any) || {};
+                if (config.offline === false) return; // 未订阅离线报警，不用设置定时器
 
-            this.offlineAlertTimers.set(id, timer);
-            this.logger.log(`[离线评估] 检测到设备 [${id}] 突发断连，已启动 120 秒意外离线防抖检测...`);
+                let timeoutMinutes = 10;
+                if (typeof config.offlineTimeout === 'number') {
+                  timeoutMinutes = Math.max(2, Math.min(60, config.offlineTimeout));
+                }
+
+                const ms = timeoutMinutes * 60 * 1000;
+                this.logger.log(
+                  `[离线评估] 检测到设备 [${id}] 突发断连，已启动 ${timeoutMinutes} 分钟意外离线防抖检测...`,
+                );
+
+                const timer = setTimeout(() => {
+                  this.offlineAlertTimers.delete(id);
+
+                  const currentConn = this.activeConnections.get(id);
+                  if (!currentConn) {
+                    this.handleUnexpectedOffline(conn, timeoutMinutes).catch((err) => {
+                      this.logger.error(`执行离线报警评估出错: ${id}`, err);
+                    });
+                  } else {
+                    this.logger.log(
+                      `[离线评估] 设备 [${id}] 在 ${timeoutMinutes} 分钟防抖期内已连回，自动取消意外离线报警邮件的发送。`,
+                    );
+                  }
+                }, ms);
+
+                this.offlineAlertTimers.set(id, timer);
+              })
+              .catch((err) => {
+                this.logger.error(
+                  `[离线评估] 获取卡密 [${conn.code}] 离线配置失败，启用默认 10 分钟防抖判定:`,
+                  err,
+                );
+                // 兜底 10 分钟
+                const timeoutMinutes = 10;
+                const ms = timeoutMinutes * 60 * 1000;
+                const timer = setTimeout(() => {
+                  this.offlineAlertTimers.delete(id);
+                  const currentConn = this.activeConnections.get(id);
+                  if (!currentConn) {
+                    this.handleUnexpectedOffline(conn, timeoutMinutes).catch((errOpt) => {
+                      this.logger.error(`执行离线报警评估出错: ${id}`, errOpt);
+                    });
+                  }
+                }, ms);
+                this.offlineAlertTimers.set(id, timer);
+              });
           }
         }
 
@@ -969,7 +1008,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   }
 
   // 1. 意外断开
-  private async handleUnexpectedOffline(conn: ClientConnection) {
+  private async handleUnexpectedOffline(conn: ClientConnection, timeoutMinutes: number = 10) {
     // 检查订阅
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code: conn.code },
@@ -979,7 +1018,8 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     if (config.offline === false) return; // 未订阅
 
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
-    const message = `设备 [${name}] 连续超过 120 秒未响应心跳（或 TCP 连接在运行中异常中断），且下线前无 OnScriptExit() 优雅退出日志，判定为突发离线/死机异常。`;
+    const seconds = timeoutMinutes * 60;
+    const message = `设备 [${name}] 连续超过 ${seconds} 秒未响应心跳（或 TCP 连接在运行中异常中断），且下线前无 OnScriptExit() 优雅退出日志，判定为突发离线/死机异常。`;
     
     this.addAlertToHistory(conn, 'offline_unexpected', '设备意外离线', message);
 
@@ -994,6 +1034,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
           <tr><td style="padding: 6px; font-weight: bold;">设备ID：</td><td style="padding: 6px; color: #111827;">${conn.deviceId}</td></tr>
           <tr><td style="padding: 6px; font-weight: bold;">应用包名：</td><td style="padding: 6px; color: #111827;">${conn.appName || '未记录'}</td></tr>
           <tr><td style="padding: 6px; font-weight: bold;">告警原因：</td><td style="padding: 6px; color: #dc2626;">未收到正常停止指令即发生连接断开，疑似脚本或网络崩溃。</td></tr>
+          <tr><td style="padding: 6px; font-weight: bold;">判定时长：</td><td style="padding: 6px; color: #111827;">连续超过 ${seconds} 秒未响应心跳</td></tr>
           <tr><td style="padding: 6px; font-weight: bold;">离线时间：</td><td style="padding: 6px; color: #111827;">${new Date().toLocaleString()}</td></tr>
         </table>
         <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">请前往云手机/模拟器后台排查网络连接或游戏软件运行状况。</p>

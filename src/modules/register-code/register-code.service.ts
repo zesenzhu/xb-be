@@ -812,6 +812,7 @@ export class RegisterCodeService {
       alertEmail: regCode.alertEmail || '',
       alertConfig: regCode.alertConfig || {
         offline: true,
+        offlineTimeout: 10,
         launcher: true,
         locked: false,
         vpn: true,
