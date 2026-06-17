@@ -427,6 +427,22 @@ export class RegisterCodeController {
     }
     return this.registerCodeService.getUnbindHistory(code);
   }
+
+  /**
+   * 获取指定设备在 2 天之内的账号登录运行历史记录
+   */
+  @Get('my-devices/account-history')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '获取设备账号登录历史记录', description: '查询该激活码下拉特定设备在2天内的账号流转时间列表。' })
+  async getAccountHistory(
+    @Query('code') code: string,
+    @Query('deviceId') deviceId: string,
+  ) {
+    if (!code || !deviceId) {
+      throw new BadRequestException('参数 code 和 deviceId 不能为空');
+    }
+    return this.registerCodeService.getDeviceAccountHistory(code, deviceId);
+  }
 }
 
 

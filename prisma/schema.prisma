@@ -262,3 +262,21 @@ model SystemNotification {
   @@map("sys_notification")
 }
 
+// ==========================================
+// 7. 设备账号登录运行历史记录
+// ==========================================
+model DeviceAccountHistory {
+  id         String    @id @default(uuid())
+  deviceId   String    @map("device_id")
+  code       String    // 关联的注册卡密
+  account    String    // 运行账号
+  loginTime  DateTime  @default(now()) @map("login_time") // 上线开始时间
+  logoutTime DateTime? @map("logout_time") // 下线结束时间
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([deviceId])
+  @@index([createdAt])
+  @@map("device_account_history")
+}
+
+

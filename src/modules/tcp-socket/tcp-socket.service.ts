@@ -21,6 +21,7 @@ interface ClientConnection {
   pingCount?: number;
   isExiting?: boolean; // 标记是否优雅退出 (OnScriptExit)
   connectedAt?: Date;  // 物理连接握手时间
+  lastTrackedAccount?: string; // 内存中记录的上一次跟踪的运行账号
   deviceInfo?: {
     name: string;
     model: string;
@@ -217,6 +218,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         this.logger.log(`客户端连接已断开，清理缓存: ${id}`);
         const conn = this.activeConnections.get(id);
         if (conn) {
+          // 如果下线前有正在活跃的账号，记录下线
+          const lastAcc = conn.lastTrackedAccount;
+          if (lastAcc && lastAcc !== '未登录' && lastAcc !== '') {
+            this.handleAccountLogout(id, lastAcc).catch((err) => {
+              this.logger.error(`清理设备 [${id}] 下线账号记录出错:`, err);
+            });
+          }
+
           // 广播设备下线事件
           this.deviceState$.next({
             type: 'device_list',
@@ -458,7 +467,32 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         connection.deviceInfo.runningTime = Number(data.runningTime);
       }
       if (data.currentAccount !== undefined) {
-        connection.deviceInfo.currentAccount = String(data.currentAccount);
+        const newAccount = String(data.currentAccount).trim() || '未登录';
+        const oldAccount = connection.lastTrackedAccount;
+
+        if (oldAccount === undefined) {
+          connection.lastTrackedAccount = newAccount;
+          if (newAccount !== '未登录' && newAccount !== '') {
+            this.handleAccountLogin(connection.deviceId, connection.code, newAccount).catch((err) => {
+              this.logger.error(`记录账号上线出错 [${connection.deviceId}]:`, err);
+            });
+          }
+        } else if (oldAccount !== newAccount) {
+          this.logger.log(`设备 [${connection.deviceId}] 账号流转: [${oldAccount}] -> [${newAccount}]`);
+          if (oldAccount !== '未登录' && oldAccount !== '') {
+            this.handleAccountLogout(connection.deviceId, oldAccount).catch((err) => {
+              this.logger.error(`记录账号下线出错 [${connection.deviceId}]:`, err);
+            });
+          }
+          if (newAccount !== '未登录' && newAccount !== '') {
+            this.handleAccountLogin(connection.deviceId, connection.code, newAccount).catch((err) => {
+              this.logger.error(`记录账号上线出错 [${connection.deviceId}]:`, err);
+            });
+          }
+          connection.lastTrackedAccount = newAccount;
+        }
+
+        connection.deviceInfo.currentAccount = newAccount;
       }
 
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
@@ -1175,6 +1209,75 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     `;
 
     await this.sendAlertEmail(conn.code, subject, html);
+  }
+
+  /**
+   * 记录设备账号上线
+   */
+  private async handleAccountLogin(deviceId: string, code: string, account: string) {
+    try {
+      // 1. 防御性检查：如果有未下线的同设备同账号记录，先将其下线
+      await this.prisma.deviceAccountHistory.updateMany({
+        where: {
+          deviceId,
+          account,
+          logoutTime: null,
+        },
+        data: {
+          logoutTime: new Date(),
+        },
+      });
+
+      // 2. 插入新的一条
+      await this.prisma.deviceAccountHistory.create({
+        data: {
+          deviceId,
+          code,
+          account,
+          loginTime: new Date(),
+        },
+      });
+
+      // 3. 自动清理该设备 2 天前的旧账号记录（防止数据库无限增大）
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      await this.prisma.deviceAccountHistory.deleteMany({
+        where: {
+          deviceId,
+          createdAt: {
+            lt: twoDaysAgo,
+          },
+        },
+      });
+    } catch (err) {
+      this.logger.error(`handleAccountLogin 数据库写入错误:`, err);
+    }
+  }
+
+  /**
+   * 记录设备账号下线
+   */
+  private async handleAccountLogout(deviceId: string, account: string) {
+    try {
+      const latestActive = await this.prisma.deviceAccountHistory.findFirst({
+        where: {
+          deviceId,
+          account,
+          logoutTime: null,
+        },
+        orderBy: {
+          loginTime: 'desc',
+        },
+      });
+
+      if (latestActive) {
+        await this.prisma.deviceAccountHistory.update({
+          where: { id: latestActive.id },
+          data: { logoutTime: new Date() },
+        });
+      }
+    } catch (err) {
+      this.logger.error(`handleAccountLogout 数据库写入错误:`, err);
+    }
   }
 }
 

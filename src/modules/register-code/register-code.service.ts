@@ -1649,6 +1649,51 @@ export class RegisterCodeService {
       orderBy: { unbindAt: 'desc' },
     });
   }
+
+  /**
+   * 获取指定设备在 2 天之内的账号登录运行历史记录 (鉴权验证)
+   */
+  async getDeviceAccountHistory(code: string, deviceId: string) {
+    // 1. 安全校验：确认该 deviceId 是否绑定在此 code 下 (或者曾经被绑定过)
+    const isBound = await this.prisma.registerCode.findFirst({
+      where: {
+        code,
+        boundDevices: {
+          some: {
+            deviceId,
+          },
+        },
+      },
+    });
+
+    if (!isBound) {
+      // 检查解绑历史，防备刚刚解绑的设备想要查询
+      const hasHistory = await this.prisma.registerCodeUnbindHistory.findFirst({
+        where: {
+          registerCode: { code },
+          deviceId,
+        },
+      });
+      if (!hasHistory) {
+        throw new BadRequestException('无权访问该设备的账号历史记录');
+      }
+    }
+
+    // 2. 查询 2 天内的账号变更记录 (48小时)
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    return this.prisma.deviceAccountHistory.findMany({
+      where: {
+        deviceId,
+        code,
+        createdAt: {
+          gte: twoDaysAgo,
+        },
+      },
+      orderBy: {
+        loginTime: 'desc',
+      },
+    });
+  }
 }
 
 
