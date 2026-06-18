@@ -5,7 +5,14 @@
  * @date: 2026-06-06
  */
 
-import { Injectable, OnApplicationBootstrap, OnApplicationShutdown, Logger, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  OnApplicationBootstrap,
+  OnApplicationShutdown,
+  Logger,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { RegisterCodeService } from '../register-code/register-code.service';
 import { PrismaService } from '../prisma/prisma.service';
 import * as net from 'net';
@@ -20,7 +27,7 @@ interface ClientConnection {
   appName?: string;
   pingCount?: number;
   isExiting?: boolean; // 标记是否优雅退出 (OnScriptExit)
-  connectedAt?: Date;  // 物理连接握手时间
+  connectedAt?: Date; // 物理连接握手时间
   lastTrackedAccount?: string; // 内存中记录的上一次跟踪的运行账号
   deviceInfo?: {
     name: string;
@@ -36,17 +43,18 @@ interface ClientConnection {
     frontApp?: string;
     isLocked?: number;
     vpnStatus?: number;
-    scriptMemory?: number;        // 脚本当前占用内存 (KB)
-    isSwitchingAccount?: number;  // 是否处于换号切号状态 (1: 是)
-    currentTask?: string;         // 当前执行任务名称
-    runningTime?: number;         // 脚本已运行时间 (秒)
-    currentAccount?: string;      // 当前运行账号
+    scriptMemory?: number; // 脚本当前占用内存 (KB)
+    isSwitchingAccount?: number; // 是否处于换号切号状态 (1: 是)
+    currentTask?: string; // 当前执行任务名称
+    runningTime?: number; // 脚本已运行时间 (秒)
+    currentAccount?: string; // 当前运行账号
   };
 }
 
-
 @Injectable()
-export class TcpSocketService implements OnApplicationBootstrap, OnApplicationShutdown {
+export class TcpSocketService
+  implements OnApplicationBootstrap, OnApplicationShutdown
+{
   private readonly logger = new Logger(TcpSocketService.name);
   private server: net.Server;
   private readonly port = 8082;
@@ -66,8 +74,8 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     deviceId: string;
     code: string;
     appName?: string;
-    type: string;      // offline_unexpected | launcher_detect | device_locked | vpn_disconnect | error_log_report | out_of_memory
-    typeName: string;  // 中文事件类型名
+    type: string; // offline_unexpected | launcher_detect | device_locked | vpn_disconnect | error_log_report | out_of_memory
+    typeName: string; // 中文事件类型名
     message: string;
     timestamp: Date;
   }> = [];
@@ -131,7 +139,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     });
 
     this.server.listen(this.port, '0.0.0.0', () => {
-      this.logger.log(`TCP Socket 运行服务器启动成功，正在监听端口: ${this.port}`);
+      this.logger.log(
+        `TCP Socket 运行服务器启动成功，正在监听端口: ${this.port}`,
+      );
     });
 
     this.server.on('error', (err) => {
@@ -163,30 +173,34 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   private handleConnection(socket: net.Socket) {
     // 设置超时机制以防恶意占用通道 (默认为 90秒 心跳超时)
     socket.setTimeout(90000);
-    
+
     let deviceId: string | null = null;
     let buffer = '';
 
     socket.on('data', async (data) => {
       // 防范长乱码数据流爆内存攻击，单帧缓存限制 8KB
       if (buffer.length + data.length > 8192) {
-        this.logger.debug?.(`客户端发送的消息缓冲超限且无换行，已被强制熔断保护。`);
+        this.logger.debug?.(
+          `客户端发送的消息缓冲超限且无换行，已被强制熔断保护。`,
+        );
         socket.destroy();
         return;
       }
       buffer += data.toString('utf8');
-      
+
       // 按照换行符 \n 切割消息帧以防粘包
       let newlineIdx = buffer.indexOf('\n');
       while (newlineIdx !== -1) {
         const line = buffer.substring(0, newlineIdx).trim();
         buffer = buffer.substring(newlineIdx + 1);
-        
+
         if (line) {
           // 💡 快速熔断非 JSON 帧的非法网络扫描（如 HTTP GET / Host 扫描）
           if (line.charAt(0) !== '{') {
             // 降级为 debug 级别，避免生产环境 warn 日志刷屏
-            this.logger.debug?.(`检测到非 JSON 协议帧，已断开连接。内容: ${line.substring(0, 80)}`);
+            this.logger.debug?.(
+              `检测到非 JSON 协议帧，已断开连接。内容: ${line.substring(0, 80)}`,
+            );
             socket.destroy();
             return;
           }
@@ -197,7 +211,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
             });
           } catch (err) {
             this.logger.error(`解析数据帧出错: ${line.substring(0, 150)}`, err);
-            socket.write(JSON.stringify({ status: 'error', message: 'Bad request frame format' }) + '\n');
+            socket.write(
+              JSON.stringify({
+                status: 'error',
+                message: 'Bad request frame format',
+              }) + '\n',
+            );
             socket.destroy(); // 协议异常立即切断连接，避免被无效请求占满句柄
             return;
           }
@@ -208,7 +227,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     // 超时断开逻辑 (心跳断流)
     socket.on('timeout', () => {
-      this.logger.warn(`客户端长连接超时无心跳响应，将被强制回收: ${deviceId || '未知设备'}`);
+      this.logger.warn(
+        `客户端长连接超时无心跳响应，将被强制回收: ${deviceId || '未知设备'}`,
+      );
       socket.end();
     });
 
@@ -234,7 +255,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
             payload: {
               action: 'offline',
               deviceId: id,
-            }
+            },
           });
 
           // 意外下线判定：如果设备没有被标记为优雅退出且已经认证过，启用动态防抖延迟评估
@@ -254,7 +275,10 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
                 let timeoutMinutes = 10;
                 if (typeof config.offlineTimeout === 'number') {
-                  timeoutMinutes = Math.max(2, Math.min(60, config.offlineTimeout));
+                  timeoutMinutes = Math.max(
+                    2,
+                    Math.min(60, config.offlineTimeout),
+                  );
                 }
 
                 const ms = timeoutMinutes * 60 * 1000;
@@ -267,9 +291,11 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
                   const currentConn = this.activeConnections.get(id);
                   if (!currentConn) {
-                    this.handleUnexpectedOffline(conn, timeoutMinutes).catch((err) => {
-                      this.logger.error(`执行离线报警评估出错: ${id}`, err);
-                    });
+                    this.handleUnexpectedOffline(conn, timeoutMinutes).catch(
+                      (err) => {
+                        this.logger.error(`执行离线报警评估出错: ${id}`, err);
+                      },
+                    );
                   } else {
                     this.logger.log(
                       `[离线评估] 设备 [${id}] 在 ${timeoutMinutes} 分钟防抖期内已连回，自动取消意外离线报警邮件的发送。`,
@@ -291,9 +317,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
                   this.offlineAlertTimers.delete(id);
                   const currentConn = this.activeConnections.get(id);
                   if (!currentConn) {
-                    this.handleUnexpectedOffline(conn, timeoutMinutes).catch((errOpt) => {
-                      this.logger.error(`执行离线报警评估出错: ${id}`, errOpt);
-                    });
+                    this.handleUnexpectedOffline(conn, timeoutMinutes).catch(
+                      (errOpt) => {
+                        this.logger.error(
+                          `执行离线报警评估出错: ${id}`,
+                          errOpt,
+                        );
+                      },
+                    );
                   }
                 }, ms);
                 this.offlineAlertTimers.set(id, timer);
@@ -317,20 +348,32 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     });
 
     socket.on('error', (err: any) => {
-      const isCommonNetError = err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ETIMEDOUT';
+      const isCommonNetError =
+        err.code === 'ECONNRESET' ||
+        err.code === 'EPIPE' ||
+        err.code === 'ETIMEDOUT';
       if (!deviceId) {
         // 未认证设备（多为扫描器、健康探测）的常见断连网络错误，降级用 debug 记录或直接忽略
         if (isCommonNetError) {
-          this.logger.debug?.(`未知设备的常规网络断开 (${err.code}): ${err.message}`);
+          this.logger.debug?.(
+            `未知设备的常规网络断开 (${err.code}): ${err.message}`,
+          );
         } else {
-          this.logger.warn(`未知设备物理连接发生非标准异常 (${err.code || 'ERR'}): ${err.message}`);
+          this.logger.warn(
+            `未知设备物理连接发生非标准异常 (${err.code || 'ERR'}): ${err.message}`,
+          );
         }
       } else {
         // 已经绑定成功注册的合法客户端
         if (isCommonNetError) {
-          this.logger.warn(`已认证设备断连 (${err.code}): 设备ID: ${deviceId}, 描述: ${err.message}`);
+          this.logger.warn(
+            `已认证设备断连 (${err.code}): 设备ID: ${deviceId}, 描述: ${err.message}`,
+          );
         } else {
-          this.logger.error(`已认证设备连接发生严重异常: ${deviceId}`, err.message);
+          this.logger.error(
+            `已认证设备连接发生严重异常: ${deviceId}`,
+            err.message,
+          );
         }
       }
     });
@@ -339,7 +382,11 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   /**
    * 解析并处理单条 JSON 协议指令数据
    */
-  private async processMessage(socket: net.Socket, rawMessage: string, setDeviceId: (id: string) => void) {
+  private async processMessage(
+    socket: net.Socket,
+    rawMessage: string,
+    setDeviceId: (id: string) => void,
+  ) {
     interface MessageData {
       action?: string;
       code?: string;
@@ -371,21 +418,34 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     const deviceInfo = data.deviceInfo;
 
     if (!action) {
-      socket.write(JSON.stringify({ status: 'error', message: 'Missing action field' }) + '\n');
+      socket.write(
+        JSON.stringify({ status: 'error', message: 'Missing action field' }) +
+          '\n',
+      );
       return;
     }
 
     // 1. 鉴权激活握手
     if (action === 'auth') {
       if (!code || !deviceId) {
-        socket.write(JSON.stringify({ status: 'error', message: 'Auth action requires code and deviceId' }) + '\n');
+        socket.write(
+          JSON.stringify({
+            status: 'error',
+            message: 'Auth action requires code and deviceId',
+          }) + '\n',
+        );
         return;
       }
 
       try {
         // 调用注册码服务尝试登录激活
-        const authResult = await this.registerCodeService.activateCode(code, deviceId, appName, deviceInfo);
-        
+        const authResult = await this.registerCodeService.activateCode(
+          code,
+          deviceId,
+          appName,
+          deviceInfo,
+        );
+
         // 绑定设备标识至本地 socket 钩子
         setDeviceId(deviceId);
 
@@ -405,7 +465,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         if (this.offlineAlertTimers.has(deviceId)) {
           clearTimeout(this.offlineAlertTimers.get(deviceId));
           this.offlineAlertTimers.delete(deviceId);
-          this.logger.log(`设备 [${deviceId}] 重新连回并鉴权成功，已取消意外离线报警评估。`);
+          this.logger.log(
+            `设备 [${deviceId}] 重新连回并鉴权成功，已取消意外离线报警评估。`,
+          );
         }
 
         // 广播设备上线/列表更新事件
@@ -419,31 +481,39 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
             appName,
             deviceInfo,
             ip: this.getDeviceRemoteIp(deviceId),
-          }
+          },
         });
 
-        this.logger.log(`客户端设备通过 TCP 鉴权成功: [${deviceId}] 注册码 [${code}]`);
-        
+        this.logger.log(
+          `客户端设备通过 TCP 鉴权成功: [${deviceId}] 注册码 [${code}]`,
+        );
+
         // 响应客户端
-        socket.write(JSON.stringify({
-          status: 'ok',
-          message: 'Authentication successful',
-          data: {
-            expireTime: authResult.expireTime,
-            maxActive: authResult.maxActive,
-            usedNum: authResult.usedNum,
-          }
-        }) + '\n');
+        socket.write(
+          JSON.stringify({
+            status: 'ok',
+            message: 'Authentication successful',
+            data: {
+              expireTime: authResult.expireTime,
+              maxActive: authResult.maxActive,
+              usedNum: authResult.usedNum,
+            },
+          }) + '\n',
+        );
 
         // 💡 顺便检查一下：如果刚刚在没有连接前，已经有网页端正在监视（管理员或授权码用户），我们立刻下发开启日志流指令！
         const viewers = this.logStreamViewers.get(deviceId) || 0;
         if (viewers > 0 || this.activeWebClients.has(code)) {
           socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
         }
-
       } catch (err: any) {
         this.logger.warn(`设备鉴权失败 [${deviceId}]: ${err.message}`);
-        socket.write(JSON.stringify({ status: 'error', message: err.message || 'Auth check failed' }) + '\n');
+        socket.write(
+          JSON.stringify({
+            status: 'error',
+            message: err.message || 'Auth check failed',
+          }) + '\n',
+        );
         socket.end();
       }
       return;
@@ -451,7 +521,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     // 校验：后续所有指令必须先通过 auth 握手注册
     if (!deviceId || !this.activeConnections.has(deviceId)) {
-      socket.write(JSON.stringify({ status: 'error', message: 'Unauthorized. Please send auth frame first' }) + '\n');
+      socket.write(
+        JSON.stringify({
+          status: 'error',
+          message: 'Unauthorized. Please send auth frame first',
+        }) + '\n',
+      );
       socket.end();
       return;
     }
@@ -461,7 +536,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     // 2. 心跳机制
     if (action === 'ping') {
       connection.pingCount = (connection.pingCount || 0) + 1;
-      
+
       if (!connection.deviceInfo) {
         connection.deviceInfo = {
           name: `设备 (${deviceId.slice(0, 8)})`,
@@ -497,7 +572,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         (connection.deviceInfo as any).scriptMemory = Number(data.scriptMemory);
       }
       if (data.isSwitchingAccount !== undefined) {
-        (connection.deviceInfo as any).isSwitchingAccount = Number(data.isSwitchingAccount);
+        (connection.deviceInfo as any).isSwitchingAccount = Number(
+          data.isSwitchingAccount,
+        );
       }
       if (data.currentTask !== undefined) {
         connection.deviceInfo.currentTask = String(data.currentTask);
@@ -512,20 +589,41 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         if (oldAccount === undefined) {
           connection.lastTrackedAccount = newAccount;
           if (newAccount !== '未登录' && newAccount !== '') {
-            this.handleAccountLogin(connection.deviceId, connection.code, newAccount).catch((err) => {
-              this.logger.error(`记录账号上线出错 [${connection.deviceId}]:`, err);
+            this.handleAccountLogin(
+              connection.deviceId,
+              connection.code,
+              newAccount,
+            ).catch((err) => {
+              this.logger.error(
+                `记录账号上线出错 [${connection.deviceId}]:`,
+                err,
+              );
             });
           }
         } else if (oldAccount !== newAccount) {
-          this.logger.log(`设备 [${connection.deviceId}] 账号流转: [${oldAccount}] -> [${newAccount}]`);
+          this.logger.log(
+            `设备 [${connection.deviceId}] 账号流转: [${oldAccount}] -> [${newAccount}]`,
+          );
           if (oldAccount !== '未登录' && oldAccount !== '') {
-            this.handleAccountLogout(connection.deviceId, oldAccount).catch((err) => {
-              this.logger.error(`记录账号下线出错 [${connection.deviceId}]:`, err);
-            });
+            this.handleAccountLogout(connection.deviceId, oldAccount).catch(
+              (err) => {
+                this.logger.error(
+                  `记录账号下线出错 [${connection.deviceId}]:`,
+                  err,
+                );
+              },
+            );
           }
           if (newAccount !== '未登录' && newAccount !== '') {
-            this.handleAccountLogin(connection.deviceId, connection.code, newAccount).catch((err) => {
-              this.logger.error(`记录账号上线出错 [${connection.deviceId}]:`, err);
+            this.handleAccountLogin(
+              connection.deviceId,
+              connection.code,
+              newAccount,
+            ).catch((err) => {
+              this.logger.error(
+                `记录账号上线出错 [${connection.deviceId}]:`,
+                err,
+              );
             });
           }
           connection.lastTrackedAccount = newAccount;
@@ -539,12 +637,18 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       const curFront = connection.deviceInfo.frontApp || '';
       const curLocked = connection.deviceInfo.isLocked;
       const curVpn = connection.deviceInfo.vpnStatus;
-      const isSwitching = (connection.deviceInfo as any).isSwitchingAccount === 1;
+      const isSwitching =
+        (connection.deviceInfo as any).isSwitchingAccount === 1;
 
       // 💡 2.1 退回桌面防抖检测 (60秒防抖且过滤切号状态)
       const isLauncherPkg = (pkg: string) => {
         const p = pkg.toLowerCase();
-        return p.includes('launcher') || p.includes('desktop') || p.includes('miui.home') || p === 'com.android.systemui';
+        return (
+          p.includes('launcher') ||
+          p.includes('desktop') ||
+          p.includes('miui.home') ||
+          p === 'com.android.systemui'
+        );
       };
 
       if (isLauncherPkg(curFront) && !isSwitching) {
@@ -593,9 +697,11 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
       // 💡 2.4 脚本内存超限泄漏预警
       if (data.scriptMemory !== undefined) {
-        this.handleOutOfMemory(connection, Number(data.scriptMemory)).catch((err) => {
-          this.logger.error(`执行内存超限评估出错: ${deviceId}`, err);
-        });
+        this.handleOutOfMemory(connection, Number(data.scriptMemory)).catch(
+          (err) => {
+            this.logger.error(`执行内存超限评估出错: ${deviceId}`, err);
+          },
+        );
       }
 
       // 广播设备状态与真实硬件更新事件到网页前端
@@ -640,9 +746,11 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
         // 💡 3.1 监听并评估 ERROR 日志告警 (含5分钟发信冷喷)
         if (log.level === 'ERROR') {
-          this.handleErrorLogAlert(connection, log.content || '').catch((err) => {
-            this.logger.error(`执行ERROR日志报警评估出错: ${deviceId}`, err);
-          });
+          this.handleErrorLogAlert(connection, log.content || '').catch(
+            (err) => {
+              this.logger.error(`执行ERROR日志报警评估出错: ${deviceId}`, err);
+            },
+          );
         }
       }
       return;
@@ -657,19 +765,30 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
       let logsList = data.logs || [];
       if (logsList.length > 50) {
-        this.logger.warn(`设备 [${deviceId}] 批量上报日志条数超限 (${logsList.length} 条)，已截断至前 50 条`);
+        this.logger.warn(
+          `设备 [${deviceId}] 批量上报日志条数超限 (${logsList.length} 条)，已截断至前 50 条`,
+        );
         logsList = logsList.slice(0, 50);
       }
 
       if (logsList.length > 0) {
-        this.logger.log(`接收到设备 [${deviceId}] 批量归档日志，类型: ${action}，行数: ${logsList.length}`);
-        
+        this.logger.log(
+          `接收到设备 [${deviceId}] 批量归档日志，类型: ${action}，行数: ${logsList.length}`,
+        );
+
         try {
           // 批量构建 ScriptLog 数据并落库
           const insertData = logsList.map((log: any) => {
+            const logObj = log as {
+              timestamp?: unknown;
+              time?: unknown;
+              level?: unknown;
+              module?: unknown;
+              content?: unknown;
+            };
             let logDate = new Date();
-            if (log.time && typeof log.time === 'string') {
-              const timeParts = log.time.split(':');
+            if (logObj.time && typeof logObj.time === 'string') {
+              const timeParts = logObj.time.split(':');
               if (timeParts.length === 3) {
                 const hours = parseInt(timeParts[0], 10);
                 const minutes = parseInt(timeParts[1], 10);
@@ -688,35 +807,54 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
                     const month = parts.find((p) => p.type === 'month')?.value;
                     const day = parts.find((p) => p.type === 'day')?.value;
 
+                    // 计算毫秒数：从客户端日志自带的 timestamp (TickCount) 取余 1000 得到相对毫秒
+                    const clientMs =
+                      typeof logObj.timestamp === 'number'
+                        ? logObj.timestamp % 1000
+                        : 0;
+                    const msStr = String(clientMs).padStart(3, '0');
+
                     if (year && month && day) {
-                      // 拼接为标准的东八区 ISO 字符串，转换为绝对的 Date 对象
-                      logDate = new Date(`${year}-${month}-${day}T${log.time}+08:00`);
+                      // 拼接为标准的东八区 ISO 字符串（带毫秒），转换为绝对的 Date 对象
+                      logDate = new Date(
+                        `${year}-${month}-${day}T${logObj.time}.${msStr}+08:00`,
+                      );
                     } else {
-                      logDate.setHours(hours, minutes, seconds, 0);
+                      logDate.setHours(hours, minutes, seconds, clientMs);
                     }
 
-                    // 防御性时间校验：如果合成的日志时间比当前服务器时间大过 5 分钟，说明该日志是在跨天交界处上报的昨日日志，需向前推回 1 天
+                    // 防御性时间校验：如果合成 of 日志时间比当前服务器时间大过 5 分钟，说明该日志是在跨天交界处上报的昨日日志，需向前推回 1 天
                     const now = new Date();
                     if (logDate.getTime() > now.getTime() + 5 * 60 * 1000) {
                       logDate.setDate(logDate.getDate() - 1);
                     }
                   } catch {
-                    logDate.setHours(hours, minutes, seconds, 0);
+                    const clientMs =
+                      typeof logObj.timestamp === 'number'
+                        ? logObj.timestamp % 1000
+                        : 0;
+                    logDate.setHours(hours, minutes, seconds, clientMs);
                   }
                 }
               }
             }
 
-            let contentStr = log.content || '';
+            let contentStr =
+              typeof logObj.content === 'string' ? logObj.content : '';
             if (contentStr.length > 300) {
               contentStr = contentStr.substring(0, 300) + '...[已截断]';
             }
 
+            const moduleStr =
+              typeof logObj.module === 'string' ? logObj.module : 'CLIENT';
+            const levelStr =
+              typeof logObj.level === 'string' ? logObj.level : 'INFO';
+
             return {
               deviceId,
               registerCodeId: connection.codeId,
-              level: log.level || 'INFO',
-              message: `[${log.module || 'CLIENT'}] ${contentStr}`,
+              level: levelStr,
+              message: `[${moduleStr}] ${contentStr}`,
               timestamp: logDate,
             };
           });
@@ -725,17 +863,27 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
             data: insertData,
           });
 
-          this.logger.log(`设备 [${deviceId}] 的历史归档日志批量写入 PostgreSQL 成功`);
+          this.logger.log(
+            `设备 [${deviceId}] 的历史归档日志批量写入 PostgreSQL 成功`,
+          );
         } catch (dbErr) {
           this.logger.error(`保存归档日志至数据库出错:`, dbErr);
         }
       }
-      
-      socket.write(JSON.stringify({ status: 'ok', message: 'Exit logs archived successfully' }) + '\n');
+
+      socket.write(
+        JSON.stringify({
+          status: 'ok',
+          message: 'Exit logs archived successfully',
+        }) + '\n',
+      );
       return;
     }
 
-    socket.write(JSON.stringify({ status: 'error', message: 'Unknown action type' }) + '\n');
+    socket.write(
+      JSON.stringify({ status: 'error', message: 'Unknown action type' }) +
+        '\n',
+    );
   }
 
   /**
@@ -744,16 +892,24 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   public addViewer(deviceId: string) {
     const current = this.logStreamViewers.get(deviceId) || 0;
     this.logStreamViewers.set(deviceId, current + 1);
-    
+
     if (current === 0) {
       const connection = this.activeConnections.get(deviceId);
       if (connection) {
-        const hasWebClient = connection.code ? this.activeWebClients.has(connection.code) : false;
+        const hasWebClient = connection.code
+          ? this.activeWebClients.has(connection.code)
+          : false;
         if (!hasWebClient) {
-          this.logger.log(`检测到网页端已打开日志视窗，且当前无全局大屏监视，向设备 [${deviceId}] 下发：start_log_stream`);
-          connection.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
+          this.logger.log(
+            `检测到网页端已打开日志视窗，且当前无全局大屏监视，向设备 [${deviceId}] 下发：start_log_stream`,
+          );
+          connection.socket.write(
+            JSON.stringify({ cmd: 'start_log_stream' }) + '\n',
+          );
         } else {
-          this.logger.log(`网页端已打开日志视窗，设备 [${deviceId}] 当前已处于全局大屏监视状态，无需重复下发 start_log_stream`);
+          this.logger.log(
+            `网页端已打开日志视窗，设备 [${deviceId}] 当前已处于全局大屏监视状态，无需重复下发 start_log_stream`,
+          );
         }
       }
     }
@@ -768,12 +924,20 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       this.logStreamViewers.delete(deviceId);
       const connection = this.activeConnections.get(deviceId);
       if (connection) {
-        const hasWebClient = connection.code ? this.activeWebClients.has(connection.code) : false;
+        const hasWebClient = connection.code
+          ? this.activeWebClients.has(connection.code)
+          : false;
         if (!hasWebClient) {
-          this.logger.log(`检测到无网页端实时收听，且当前无全局大屏监视，向设备 [${deviceId}] 下发：stop_log_stream`);
-          connection.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
+          this.logger.log(
+            `检测到无网页端实时收听，且当前无全局大屏监视，向设备 [${deviceId}] 下发：stop_log_stream`,
+          );
+          connection.socket.write(
+            JSON.stringify({ cmd: 'stop_log_stream' }) + '\n',
+          );
         } else {
-          this.logger.log(`检测到网页端单设备监听已移除，但由于当前该注册码存在全局大屏监视，设备 [${deviceId}] 保持日志上报`);
+          this.logger.log(
+            `检测到网页端单设备监听已移除，但由于当前该注册码存在全局大屏监视，设备 [${deviceId}] 保持日志上报`,
+          );
         }
       }
     } else {
@@ -797,10 +961,15 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         payload: {
           action: 'offline',
           deviceId,
-        }
+        },
       });
 
-      connection.socket.write(JSON.stringify({ cmd: 'force_kick', message: 'Device unbound by administrator' }) + '\n');
+      connection.socket.write(
+        JSON.stringify({
+          cmd: 'force_kick',
+          message: 'Device unbound by administrator',
+        }) + '\n',
+      );
       connection.socket.end();
       this.activeConnections.delete(deviceId);
       this.logStreamViewers.delete(deviceId);
@@ -864,10 +1033,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       if (conn.code === code) {
         const viewerCount = this.logStreamViewers.get(deviceId) || 0;
         if (viewerCount === 0) {
-          this.logger.log(`检测到网页端已打开全局监视，向设备 [${deviceId}] 下发：start_log_stream`);
+          this.logger.log(
+            `检测到网页端已打开全局监视，向设备 [${deviceId}] 下发：start_log_stream`,
+          );
           conn.socket.write(JSON.stringify({ cmd: 'start_log_stream' }) + '\n');
         } else {
-          this.logger.log(`网页端已打开全局监视，但由于设备 [${deviceId}] 存在网页端单设备收听，保持上报状态`);
+          this.logger.log(
+            `网页端已打开全局监视，但由于设备 [${deviceId}] 存在网页端单设备收听，保持上报状态`,
+          );
         }
       }
     }
@@ -883,10 +1056,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       if (conn.code === code) {
         const viewerCount = this.logStreamViewers.get(deviceId) || 0;
         if (viewerCount === 0) {
-          this.logger.log(`检测到网页端已关闭全局监视，向设备 [${deviceId}] 下发：stop_log_stream`);
+          this.logger.log(
+            `检测到网页端已关闭全局监视，向设备 [${deviceId}] 下发：stop_log_stream`,
+          );
           conn.socket.write(JSON.stringify({ cmd: 'stop_log_stream' }) + '\n');
         } else {
-          this.logger.log(`网页端已关闭全局监视，但由于设备 [${deviceId}] 仍存在网页端单设备收听，保持日志上报`);
+          this.logger.log(
+            `网页端已关闭全局监视，但由于设备 [${deviceId}] 仍存在网页端单设备收听，保持日志上报`,
+          );
         }
       }
     }
@@ -909,7 +1086,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
         where: { key: 'alert_mail_enabled' },
       });
       if (alertEnabledSetting?.value !== 'true') {
-        this.logger.warn(`[邮件警报降级] 全局邮件警报开关 alert_mail_enabled 未开启，跳过发信。主题: ${subject}`);
+        this.logger.warn(
+          `[邮件警报降级] 全局邮件警报开关 alert_mail_enabled 未开启，跳过发信。主题: ${subject}`,
+        );
         return;
       }
 
@@ -920,7 +1099,9 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       });
       const alertEmail = regCode?.alertEmail;
       if (!alertEmail) {
-        this.logger.warn(`[邮件警报降级] 卡密 [${code}] 未配置警报接收邮箱 alertEmail，跳过发信。`);
+        this.logger.warn(
+          `[邮件警报降级] 卡密 [${code}] 未配置警报接收邮箱 alertEmail，跳过发信。`,
+        );
         return;
       }
 
@@ -928,7 +1109,14 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       const smtpSettings = await this.prisma.systemSetting.findMany({
         where: {
           key: {
-            in: ['mail_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from'],
+            in: [
+              'mail_enabled',
+              'smtp_host',
+              'smtp_port',
+              'smtp_user',
+              'smtp_pass',
+              'smtp_from',
+            ],
           },
         },
       });
@@ -962,7 +1150,10 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
       });
 
       // 支持分号或逗号分隔多个邮箱
-      const toEmails = alertEmail.split(/[;,]/).map((e) => e.trim()).filter(Boolean);
+      const toEmails = alertEmail
+        .split(/[;,]/)
+        .map((e) => e.trim())
+        .filter(Boolean);
       if (toEmails.length === 0) return;
 
       await transporter.sendMail({
@@ -980,7 +1171,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   /**
    * 将警报保存至内存历史，并通过 SSE 广播到前端
    */
-  private addAlertToHistory(conn: ClientConnection, type: string, typeName: string, message: string) {
+  private addAlertToHistory(
+    conn: ClientConnection,
+    type: string,
+    typeName: string,
+    message: string,
+  ) {
     const alertItem = {
       id: Math.random().toString(36).slice(2, 9),
       deviceId: conn.deviceId,
@@ -1008,7 +1204,10 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   }
 
   // 1. 意外断开
-  private async handleUnexpectedOffline(conn: ClientConnection, timeoutMinutes: number = 10) {
+  private async handleUnexpectedOffline(
+    conn: ClientConnection,
+    timeoutMinutes: number = 10,
+  ) {
     // 检查订阅
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code: conn.code },
@@ -1020,7 +1219,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
     const seconds = timeoutMinutes * 60;
     const message = `设备 [${name}] 连续超过 ${seconds} 秒未响应心跳（或 TCP 连接在运行中异常中断），且下线前无 OnScriptExit() 优雅退出日志，判定为突发离线/死机异常。`;
-    
+
     this.addAlertToHistory(conn, 'offline_unexpected', '设备意外离线', message);
 
     const subject = `🔴 紧急警报：设备意外断线/死机 [${name}]`;
@@ -1050,7 +1249,12 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     if (conn.deviceInfo?.isSwitchingAccount === 1) return;
     const isLauncher = (pkg: string) => {
       const p = pkg.toLowerCase();
-      return p.includes('launcher') || p.includes('desktop') || p.includes('miui.home') || p === 'com.android.systemui';
+      return (
+        p.includes('launcher') ||
+        p.includes('desktop') ||
+        p.includes('miui.home') ||
+        p === 'com.android.systemui'
+      );
     };
     if (!isLauncher(conn.deviceInfo?.frontApp || '')) return;
 
@@ -1063,7 +1267,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
     const message = `警告：设备 [${name}] 的当前最前端应用变更为桌面启动器 [${frontApp}]，已在最前端停留超过 60 秒。判定为游戏意外闪退或强退到桌面。`;
-    
+
     this.addAlertToHistory(conn, 'launcher_detect', '异常退回桌面', message);
 
     const subject = `⚠️ 告警：设备异常闪退到桌面 [${name}]`;
@@ -1098,7 +1302,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
     const message = `警告：设备 [${name}] 检测到锁屏状态 (isLocked === 1) 持续超过 30 秒，可能导致点击与找图功能失效。`;
-    
+
     this.addAlertToHistory(conn, 'device_locked', '设备休眠锁屏', message);
 
     const subject = `🔒 警告：设备已被锁屏 [${name}]`;
@@ -1132,7 +1336,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
     const message = `致命警告：设备 [${name}] 网络代理 (VPN) 已断开，当前回落为直连网络。存在封号关联风险，请注意防封！`;
-    
+
     this.addAlertToHistory(conn, 'vpn_disconnect', '代理(VPN)断开', message);
 
     const subject = `🛡️ 致命警告：代理(VPN)已断开 [${name}]`;
@@ -1154,7 +1358,10 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   }
 
   // 5. 内存超限
-  private async handleOutOfMemory(conn: ClientConnection, currentMemory: number) {
+  private async handleOutOfMemory(
+    conn: ClientConnection,
+    currentMemory: number,
+  ) {
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code: conn.code },
       select: { alertConfig: true },
@@ -1172,7 +1379,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
     const name = conn.deviceInfo?.name || `设备 (${conn.deviceId.slice(0, 8)})`;
     const message = `预警：设备 [${name}] 当前脚本占用内存 ${(currentMemory / 1024).toFixed(1)}MB，超过设定的阈值 ${(limit / 1024).toFixed(1)}MB。面临闪退或崩溃隐患。`;
-    
+
     this.addAlertToHistory(conn, 'out_of_memory', '内存泄漏预警', message);
 
     const subject = `🧠 预警：挂机脚本内存使用超限 [${name}]`;
@@ -1194,7 +1401,10 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   }
 
   // 6. ERROR 日志上报
-  private async handleErrorLogAlert(conn: ClientConnection, logContent: string) {
+  private async handleErrorLogAlert(
+    conn: ClientConnection,
+    logContent: string,
+  ) {
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code: conn.code },
       select: { alertConfig: true },
@@ -1229,7 +1439,7 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
 
       message = `崩溃警报：设备 [${name}] 正在执行 [${task}] (${mModule}) 任务时（当前账号: ${account}）发生致命崩溃。出错代码行数：${lineNo}。错误原因: ${reason}`;
     }
-    
+
     this.addAlertToHistory(conn, alertType, alertTypeName, message);
 
     const subject = `❌ 业务报警：挂机脚本发生致命异常/卡死错误 [${name}]`;
@@ -1255,7 +1465,11 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
   /**
    * 记录设备账号上线
    */
-  private async handleAccountLogin(deviceId: string, code: string, account: string) {
+  private async handleAccountLogin(
+    deviceId: string,
+    code: string,
+    account: string,
+  ) {
     try {
       // 1. 防御性检查：如果有未下线的同设备同账号记录，先将其下线
       await this.prisma.deviceAccountHistory.updateMany({
@@ -1321,6 +1535,3 @@ export class TcpSocketService implements OnApplicationBootstrap, OnApplicationSh
     }
   }
 }
-
-
-

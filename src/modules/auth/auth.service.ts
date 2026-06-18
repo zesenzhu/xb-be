@@ -5,7 +5,12 @@
  * @date: 2026-06-03
  */
 
-import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../user/user.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,7 +33,7 @@ export class AuthService {
 
   /**
    * 1. 验证管理员账号密码
-   * 
+   *
    * @param username 用户名
    * @param pass 明文密码
    */
@@ -53,13 +58,18 @@ export class AuthService {
 
   /**
    * 2. 验证用户端注册激活码 (无密码，直接设备绑定登录)
-   * 
+   *
    * @param code 注册激活码
    * @param clientDeviceId 客户端传入的设备 ID (可选)
    * @param ip 客户端 IP 地址
    * @param userAgent 客户端浏览器 User-Agent
    */
-  async validateLicense(code: string, clientDeviceId?: string, ip?: string, userAgent?: string) {
+  async validateLicense(
+    code: string,
+    clientDeviceId?: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
     // 1. 查询激活码
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code },
@@ -75,19 +85,23 @@ export class AuthService {
     }
 
     const now = new Date();
-    
+
     // 首次激活初始化时间
     let updatedActivatedAt = regCode.activatedAt;
     let updatedExpireTime = regCode.expireTime;
     let nextStatus = regCode.status;
     let needUpdate = false;
-    
+
     if (!regCode.activatedAt) {
       updatedActivatedAt = now;
       if (regCode.cardType === 'YJ') {
-        updatedExpireTime = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
+        updatedExpireTime = new Date(
+          now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000,
+        );
       } else {
-        updatedExpireTime = new Date(now.getTime() + regCode.durationMinutes * 60 * 1000);
+        updatedExpireTime = new Date(
+          now.getTime() + regCode.durationMinutes * 60 * 1000,
+        );
       }
       nextStatus = 2; // 首次激活置为使用中 (2)
       needUpdate = true;
@@ -131,10 +145,14 @@ export class AuthService {
 
   /**
    * 3. 物理签发 JWT 双 Token (AccessToken 与 RefreshToken)
-   * 
+   *
    * @param payload JWT 载荷信息
    */
-  async generateTokens(payload: { sub: string; username: string; role: string }) {
+  async generateTokens(payload: {
+    sub: string;
+    username: string;
+    role: string;
+  }) {
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.jwtSecret,
       expiresIn: '1h', // 访问令牌 1 小时失效
@@ -150,19 +168,27 @@ export class AuthService {
 
   /**
    * 4. 写入安全跨域 HTTP Cookie
-   * 
+   *
    * @param res Express 响应实例
    * @param tokens JWT 双令牌
    * @param type 登录物理通道类型 (admin 或 user)
    */
-  setCookies(res: Response, tokens: { accessToken: string; refreshToken: string }, type: 'admin' | 'user') {
+  setCookies(
+    res: Response,
+    tokens: { accessToken: string; refreshToken: string },
+    type: 'admin' | 'user',
+  ) {
     const isProduction = process.env.NODE_ENV === 'production';
     // 允许通过环境变量显式控制是否开启 secure，常用于生产环境在非 HTTPS 协议下代理部署
-    const useSecure = process.env.COOKIE_SECURE === 'true' || (isProduction && process.env.COOKIE_SECURE !== 'false');
-    
+    const useSecure =
+      process.env.COOKIE_SECURE === 'true' ||
+      (isProduction && process.env.COOKIE_SECURE !== 'false');
+
     // 物理防冲突：管理员与普通用户使用不同名称的 Cookie
-    const accessCookieName = type === 'admin' ? 'access_token' : 'user_access_token';
-    const refreshCookieName = type === 'admin' ? 'refresh_token' : 'user_refresh_token';
+    const accessCookieName =
+      type === 'admin' ? 'access_token' : 'user_access_token';
+    const refreshCookieName =
+      type === 'admin' ? 'refresh_token' : 'user_refresh_token';
 
     // 写入访问令牌：1 小时有效期
     res.cookie(accessCookieName, tokens.accessToken, {
@@ -185,15 +211,19 @@ export class AuthService {
 
   /**
    * 5. 清理物理跨域 Cookie (注销/退登)
-   * 
+   *
    * @param res Express 响应实例
    * @param type 物理通道类型
    */
   clearCookies(res: Response, type: 'admin' | 'user') {
     const isProduction = process.env.NODE_ENV === 'production';
-    const useSecure = process.env.COOKIE_SECURE === 'true' || (isProduction && process.env.COOKIE_SECURE !== 'false');
-    const accessCookieName = type === 'admin' ? 'access_token' : 'user_access_token';
-    const refreshCookieName = type === 'admin' ? 'refresh_token' : 'user_refresh_token';
+    const useSecure =
+      process.env.COOKIE_SECURE === 'true' ||
+      (isProduction && process.env.COOKIE_SECURE !== 'false');
+    const accessCookieName =
+      type === 'admin' ? 'access_token' : 'user_access_token';
+    const refreshCookieName =
+      type === 'admin' ? 'refresh_token' : 'user_refresh_token';
 
     res.clearCookie(accessCookieName, {
       httpOnly: true,
@@ -211,7 +241,7 @@ export class AuthService {
 
   /**
    * 6. 无感续期 Refresh Token
-   * 
+   *
    * @param token 客户端传入的刷新令牌
    */
   async verifyRefreshToken(token: string) {
@@ -243,7 +273,9 @@ export class AuthService {
       where: { key: 'mail_enabled' },
     });
     if (mailEnabledSetting?.value !== 'true') {
-      throw new BadRequestException('系统邮件服务已关闭，请联系系统管理员手动重置密码！');
+      throw new BadRequestException(
+        '系统邮件服务已关闭，请联系系统管理员手动重置密码！',
+      );
     }
 
     // 3. 生成 6 位随机验证码
@@ -301,7 +333,7 @@ export class AuthService {
 
     // 3. bcrypt 哈希新密码并更新管理员账户
     const hashed = await bcrypt.hash(newPass, 10);
-    
+
     // 查找邮箱对应的所有用户并更新密码
     await this.prisma.user.updateMany({
       where: { email },

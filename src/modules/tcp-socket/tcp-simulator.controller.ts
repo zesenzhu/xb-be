@@ -7,9 +7,23 @@
  * @date: 2026-06-06
  */
 
-import { Controller, Post, Body, Get, Query, BadRequestException, OnModuleDestroy } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Query,
+  BadRequestException,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import * as net from 'net';
 
@@ -105,10 +119,14 @@ export class TcpSimulatorController implements OnModuleDestroy {
   /**
    * 往终端记录中追加日志帧回显
    */
-  private appendHistory(deviceId: string, direction: 'send' | 'receive' | 'system', payload: string) {
+  private appendHistory(
+    deviceId: string,
+    direction: 'send' | 'receive' | 'system',
+    payload: string,
+  ) {
     const session = this.sessions.get(deviceId);
     if (!session) return;
-    
+
     const now = new Date().toTimeString().split(' ')[0];
     session.history.push({
       direction,
@@ -123,7 +141,9 @@ export class TcpSimulatorController implements OnModuleDestroy {
   }
 
   @Post('connect')
-  @ApiOperation({ summary: '与 8082 端口建立物理 TCP 长连接，并触发 auth 鉴权握手' })
+  @ApiOperation({
+    summary: '与 8082 端口建立物理 TCP 长连接，并触发 auth 鉴权握手',
+  })
   async connect(@Body() body: TcpSimConnectDto) {
     const { code, deviceId, appName = 'XB-SimulatorClient' } = body;
 
@@ -136,26 +156,33 @@ export class TcpSimulatorController implements OnModuleDestroy {
 
     return new Promise((resolve, reject) => {
       // 2. 建立本地 TCP 连接连接到 TcpSocketService 端口 (8082)
-      const socket = net.createConnection({ port: 8082, host: '127.0.0.1' }, () => {
-        // TCP 握手物理成功
-        const session: SimulatorSession = {
-          socket,
-          history: [],
-        };
-        this.sessions.set(deviceId, session);
-        this.appendHistory(deviceId, 'system', `物理 TCP 握手成功，成功连接至 127.0.0.1:8082`);
+      const socket = net.createConnection(
+        { port: 8082, host: '127.0.0.1' },
+        () => {
+          // TCP 握手物理成功
+          const session: SimulatorSession = {
+            socket,
+            history: [],
+          };
+          this.sessions.set(deviceId, session);
+          this.appendHistory(
+            deviceId,
+            'system',
+            `物理 TCP 握手成功，成功连接至 127.0.0.1:8082`,
+          );
 
-        // 3. 立即下发鉴权帧 (必须带上换行符 \n 突破黏包解析)
-        const authPayload = JSON.stringify({
-          action: 'auth',
-          code,
-          deviceId,
-          appName,
-        });
-        
-        socket.write(authPayload + '\n');
-        this.appendHistory(deviceId, 'send', authPayload);
-      });
+          // 3. 立即下发鉴权帧 (必须带上换行符 \n 突破黏包解析)
+          const authPayload = JSON.stringify({
+            action: 'auth',
+            code,
+            deviceId,
+            appName,
+          });
+
+          socket.write(authPayload + '\n');
+          this.appendHistory(deviceId, 'send', authPayload);
+        },
+      );
 
       let responseHandled = false;
       let buffer = '';
@@ -184,7 +211,11 @@ export class TcpSimulatorController implements OnModuleDestroy {
                     terminalEcho: frame,
                   });
                 } else {
-                  reject(new BadRequestException(`鉴权授权失败: ${parsed.message || '未知原因'}`));
+                  reject(
+                    new BadRequestException(
+                      `鉴权授权失败: ${parsed.message || '未知原因'}`,
+                    ),
+                  );
                 }
               } catch (e) {
                 reject(new BadRequestException(`无法解析鉴权响应包: ${frame}`));
@@ -198,7 +229,11 @@ export class TcpSimulatorController implements OnModuleDestroy {
       socket.on('error', (err) => {
         if (!responseHandled) {
           responseHandled = true;
-          reject(new BadRequestException(`模拟 TCP 物理连接建立异常: ${err.message}`));
+          reject(
+            new BadRequestException(
+              `模拟 TCP 物理连接建立异常: ${err.message}`,
+            ),
+          );
         } else {
           this.appendHistory(deviceId, 'system', `Socket 异常: ${err.message}`);
         }
@@ -215,7 +250,9 @@ export class TcpSimulatorController implements OnModuleDestroy {
           responseHandled = true;
           socket.destroy();
           this.sessions.delete(deviceId);
-          reject(new BadRequestException('连接 TCP 8082 服务端鉴权超时（5秒）'));
+          reject(
+            new BadRequestException('连接 TCP 8082 服务端鉴权超时（5秒）'),
+          );
         }
       }, 5000);
     });
@@ -253,7 +290,7 @@ export class TcpSimulatorController implements OnModuleDestroy {
     const logPayload = JSON.stringify({
       action: 'log_chunk',
       deviceId,
-      logs: logs.map(l => ({
+      logs: logs.map((l) => ({
         time: l.time || new Date().toTimeString().split(' ')[0],
         level: l.level,
         module: l.module,
@@ -281,7 +318,7 @@ export class TcpSimulatorController implements OnModuleDestroy {
       const exitPayload = JSON.stringify({
         action: 'exit_log',
         deviceId,
-        logs: logs.map(l => ({
+        logs: logs.map((l) => ({
           level: l.level,
           module: l.module,
           content: l.content,
@@ -290,9 +327,9 @@ export class TcpSimulatorController implements OnModuleDestroy {
       });
       session.socket.write(exitPayload + '\n');
       this.appendHistory(deviceId, 'send', exitPayload);
-      
+
       // 稍微延迟 200ms 以确保数据完全写出到 TCP 物理通道中，然后再关闭 socket
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     // 2. 关闭连接

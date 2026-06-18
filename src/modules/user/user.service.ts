@@ -5,7 +5,11 @@
  * @date: 2026-06-03
  */
 
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
@@ -17,7 +21,7 @@ export class UserService {
 
   /**
    * 根据用户名联表查询用户详情，并附带角色及角色所拥有的权限码
-   * 
+   *
    * @param username 登录用户名
    * @returns 用户信息、角色及其关联权限
    */
@@ -38,7 +42,7 @@ export class UserService {
 
   /**
    * 校验明文密码与 bcrypt 哈希密码是否匹配
-   * 
+   *
    * @param password 明文密码
    * @param hash 数据库哈希密文
    * @returns boolean 是否匹配
@@ -143,7 +147,8 @@ export class UserService {
     // 去除 undefined 的项
     const cleanUpdateData = updateData as Record<string, any>;
     Object.keys(cleanUpdateData).forEach(
-      (key) => cleanUpdateData[key] === undefined && delete cleanUpdateData[key],
+      (key) =>
+        cleanUpdateData[key] === undefined && delete cleanUpdateData[key],
     );
 
     return this.prisma.user.update({
@@ -206,7 +211,12 @@ export class UserService {
     return roles.map((role) => ({
       id: role.id,
       name: role.name,
-      code: role.name === '超级管理员' ? 'admin' : role.name === '运营人员' ? 'operator' : 'tester', // 映射 role.code
+      code:
+        role.name === '超级管理员'
+          ? 'admin'
+          : role.name === '运营人员'
+            ? 'operator'
+            : 'tester', // 映射 role.code
       description: role.description || '',
       permissions: role.permissions.map((p) => p.code),
     }));
@@ -273,7 +283,10 @@ export class UserService {
   /**
    * 9. 更新用户基本资料 (昵称, 邮箱, 头像)
    */
-  async updateProfile(userId: string, data: { nickname?: string; email?: string; avatar?: string }) {
+  async updateProfile(
+    userId: string,
+    data: { nickname?: string; email?: string; avatar?: string },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('当前登录用户不存在');

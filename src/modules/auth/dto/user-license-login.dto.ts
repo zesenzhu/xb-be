@@ -20,7 +20,8 @@ export class UserLicenseLoginDto {
   code: string;
 
   @ApiProperty({
-    description: '客户端物理设备唯一标识符 (可选，若不传后端将基于 User-Agent 和 IP 自动指纹指派)',
+    description:
+      '客户端物理设备唯一标识符 (可选，若不传后端将基于 User-Agent 和 IP 自动指纹指派)',
     example: 'DEVICE-MAC-001122334455',
     required: false,
   })

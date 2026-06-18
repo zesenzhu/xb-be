@@ -18,9 +18,12 @@ export class ScriptLogService implements OnApplicationBootstrap {
   onApplicationBootstrap() {
     // 启动时立即执行一次清理，之后每 10 分钟执行一次
     this.cleanOldLogs();
-    this.cleanTimer = setInterval(() => {
-      this.cleanOldLogs();
-    }, 10 * 60 * 1000);
+    this.cleanTimer = setInterval(
+      () => {
+        this.cleanOldLogs();
+      },
+      10 * 60 * 1000,
+    );
   }
 
   /**

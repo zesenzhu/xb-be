@@ -5,7 +5,21 @@
  * @date: 2026-06-06
  */
 
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, HttpCode, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  HttpStatus,
+  HttpCode,
+  BadRequestException,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { RegisterCodeService } from './register-code.service';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -35,8 +49,6 @@ export class UpdateMyAlertDto {
   alertConfig?: any;
 }
 
-
-
 @ApiTags('RegisterCode 注册码管理')
 @Controller('register-codes')
 export class RegisterCodeController {
@@ -47,18 +59,76 @@ export class RegisterCodeController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '分页获取激活注册码列表', description: '支持通过激活码、应用名、卡种、设备ID、状态及过期时间过滤。' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认 1' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页条数，默认 10' })
-  @ApiQuery({ name: 'code', required: false, type: String, description: '激活码模糊过滤' })
-  @ApiQuery({ name: 'appName', required: false, type: String, description: '应用名称过滤，general 表示通用型' })
-  @ApiQuery({ name: 'cardType', required: false, type: String, description: '卡种类型过滤' })
-  @ApiQuery({ name: 'deviceId', required: false, type: String, description: '绑定物理设备ID过滤' })
-  @ApiQuery({ name: 'status', required: false, type: String, description: '激活码状态' })
-  @ApiQuery({ name: 'isEnabled', required: false, type: String, description: '是否启用 (true/false)' })
-  @ApiQuery({ name: 'source', required: false, type: String, description: '激活码来源 (CREATE/IMPORT)' })
-  @ApiQuery({ name: 'expireStart', required: false, type: String, description: '到期时间起' })
-  @ApiQuery({ name: 'expireEnd', required: false, type: String, description: '到期时间止' })
+  @ApiOperation({
+    summary: '分页获取激活注册码列表',
+    description: '支持通过激活码、应用名、卡种、设备ID、状态及过期时间过滤。',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: '页码，默认 1',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: '每页条数，默认 10',
+  })
+  @ApiQuery({
+    name: 'code',
+    required: false,
+    type: String,
+    description: '激活码模糊过滤',
+  })
+  @ApiQuery({
+    name: 'appName',
+    required: false,
+    type: String,
+    description: '应用名称过滤，general 表示通用型',
+  })
+  @ApiQuery({
+    name: 'cardType',
+    required: false,
+    type: String,
+    description: '卡种类型过滤',
+  })
+  @ApiQuery({
+    name: 'deviceId',
+    required: false,
+    type: String,
+    description: '绑定物理设备ID过滤',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    type: String,
+    description: '激活码状态',
+  })
+  @ApiQuery({
+    name: 'isEnabled',
+    required: false,
+    type: String,
+    description: '是否启用 (true/false)',
+  })
+  @ApiQuery({
+    name: 'source',
+    required: false,
+    type: String,
+    description: '激活码来源 (CREATE/IMPORT)',
+  })
+  @ApiQuery({
+    name: 'expireStart',
+    required: false,
+    type: String,
+    description: '到期时间起',
+  })
+  @ApiQuery({
+    name: 'expireEnd',
+    required: false,
+    type: String,
+    description: '到期时间止',
+  })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getList(
     @Query('page') page?: string,
@@ -75,7 +145,7 @@ export class RegisterCodeController {
   ): Promise<any> {
     const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
     const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 10;
-    
+
     let isEnabledBool: boolean | undefined;
     if (isEnabled === 'true') isEnabledBool = true;
     if (isEnabled === 'false') isEnabledBool = false;
@@ -98,17 +168,21 @@ export class RegisterCodeController {
    */
   @Post('generate')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: '批量生成激活码', description: '在数据库中自动批量随机生成以卡种为前缀的授权激活码。' })
+  @ApiOperation({
+    summary: '批量生成激活码',
+    description: '在数据库中自动批量随机生成以卡种为前缀的授权激活码。',
+  })
   @ApiResponse({ status: 201, description: '批量生成成功' })
   async generateCodes(
-    @Body() body: {
+    @Body()
+    body: {
       count: number;
       maxActivations: number;
       appName?: string;
       cardType: string;
       durationMinutes: number;
       remark?: string;
-    }
+    },
   ) {
     return this.registerCodeService.generate(body);
   }
@@ -118,14 +192,21 @@ export class RegisterCodeController {
    */
   @Patch('my-devices/unbind')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '物理设备解绑', description: '从注册码绑定列表中解绑单个特定设备，并下发下线 Kick 指令。' })
+  @ApiOperation({
+    summary: '物理设备解绑',
+    description: '从注册码绑定列表中解绑单个特定设备，并下发下线 Kick 指令。',
+  })
   async unbindSingleDevice(
     @Body() body: { code: string; deviceId: string; operator?: string },
   ) {
     if (!body.code || !body.deviceId) {
       throw new BadRequestException('参数 code 和 deviceId 不能为空');
     }
-    return this.registerCodeService.unbindSingleDevice(body.code, body.deviceId, body.operator || 'user');
+    return this.registerCodeService.unbindSingleDevice(
+      body.code,
+      body.deviceId,
+      body.operator || 'user',
+    );
   }
 
   /**
@@ -133,7 +214,10 @@ export class RegisterCodeController {
    */
   @Patch(':id/status')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '更新注册码启用状态', description: '手动启用或禁用一个注册激活码。' })
+  @ApiOperation({
+    summary: '更新注册码启用状态',
+    description: '手动启用或禁用一个注册激活码。',
+  })
   @ApiResponse({ status: 200, description: '状态修改成功' })
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async updateStatus(
@@ -149,21 +233,28 @@ export class RegisterCodeController {
    */
   @Patch(':id/adjust-time')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '调整激活码剩余有效时间', description: '支持正负数，加减激活码的截止日期，并记录原因' })
+  @ApiOperation({
+    summary: '调整激活码剩余有效时间',
+    description: '支持正负数，加减激活码的截止日期，并记录原因',
+  })
   @ApiResponse({ status: 200, description: '微调时间成功' })
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async adjustTime(
     @Param('id') id: string,
     @Body() body: { adjustMinutes: number; reason: string },
   ) {
-    const updated = await this.registerCodeService.adjustDuration(id, body.adjustMinutes, body.reason);
+    const updated = await this.registerCodeService.adjustDuration(
+      id,
+      body.adjustMinutes,
+      body.reason,
+    );
     return {
       success: true,
       message: `已成功微调时长 ${body.adjustMinutes} 分钟！`,
       data: {
         expireTime: updated.expireTime,
         remark: updated.remark,
-      }
+      },
     };
   }
 
@@ -172,7 +263,10 @@ export class RegisterCodeController {
    */
   @Patch(':id/unbind')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '强行解绑该卡所有设备', description: '清空已绑定设备，重置usedNum，断开其长连接' })
+  @ApiOperation({
+    summary: '强行解绑该卡所有设备',
+    description: '清空已绑定设备，重置usedNum，断开其长连接',
+  })
   @ApiResponse({ status: 200, description: '解绑成功' })
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async unbindDevices(@Param('id') id: string) {
@@ -183,7 +277,7 @@ export class RegisterCodeController {
       data: {
         usedNum: updated.usedNum,
         bindDevices: updated.bindDevices,
-      }
+      },
     };
   }
 
@@ -192,7 +286,11 @@ export class RegisterCodeController {
    */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '作废/回收激活码', description: '物理从系统中废除并删除该注册码，其绑定的设备将立刻丢失授权并踢下线。' })
+  @ApiOperation({
+    summary: '作废/回收激活码',
+    description:
+      '物理从系统中废除并删除该注册码，其绑定的设备将立刻丢失授权并踢下线。',
+  })
   @ApiResponse({ status: 200, description: '删除作废成功' })
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async deleteCode(@Param('id') id: string) {
@@ -204,13 +302,22 @@ export class RegisterCodeController {
    */
   @Patch('batch-status')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '批量更新激活码状态', description: '支持批量启用或批量禁用激活码。' })
+  @ApiOperation({
+    summary: '批量更新激活码状态',
+    description: '支持批量启用或批量禁用激活码。',
+  })
   @ApiResponse({ status: 200, description: '批量更新成功' })
   async batchUpdateStatus(
     @Body() body: { ids: string[]; status: 'active' | 'disabled' },
   ) {
-    const res = await this.registerCodeService.batchUpdateStatus(body.ids, body.status);
-    return { success: true, message: `成功更新了 ${res.count} 个激活码的状态！` };
+    const res = await this.registerCodeService.batchUpdateStatus(
+      body.ids,
+      body.status,
+    );
+    return {
+      success: true,
+      message: `成功更新了 ${res.count} 个激活码的状态！`,
+    };
   }
 
   /**
@@ -218,13 +325,23 @@ export class RegisterCodeController {
    */
   @Patch('batch-adjust-time')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '批量微调激活码有效时间', description: '批量调整选中非永久卡的有效到期时间（支持正负值调整）。' })
+  @ApiOperation({
+    summary: '批量微调激活码有效时间',
+    description: '批量调整选中非永久卡的有效到期时间（支持正负值调整）。',
+  })
   @ApiResponse({ status: 200, description: '批量微调成功' })
   async batchAdjustTime(
     @Body() body: { ids: string[]; adjustMinutes: number; reason: string },
   ) {
-    const res = await this.registerCodeService.batchAdjustDuration(body.ids, body.adjustMinutes, body.reason);
-    return { success: true, message: `成功调整了 ${res.count} 个激活码的时长！` };
+    const res = await this.registerCodeService.batchAdjustDuration(
+      body.ids,
+      body.adjustMinutes,
+      body.reason,
+    );
+    return {
+      success: true,
+      message: `成功调整了 ${res.count} 个激活码的时长！`,
+    };
   }
 
   /**
@@ -232,11 +349,12 @@ export class RegisterCodeController {
    */
   @Post('batch-delete')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '批量物理作废激活码', description: '从系统中批量物理删除激活码，并踢下线其所绑定的设备。' })
+  @ApiOperation({
+    summary: '批量物理作废激活码',
+    description: '从系统中批量物理删除激活码，并踢下线其所绑定的设备。',
+  })
   @ApiResponse({ status: 200, description: '批量删除成功' })
-  async batchDelete(
-    @Body() body: { ids: string[] },
-  ) {
+  async batchDelete(@Body() body: { ids: string[] }) {
     const res = await this.registerCodeService.batchDelete(body.ids);
     return { success: true, message: `成功注销了 ${res.count} 个激活码！` };
   }
@@ -246,7 +364,10 @@ export class RegisterCodeController {
    */
   @Get('all-devices')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '管理员获取所有注册码绑定的物理设备列表', description: '供后台管理员大屏拉取全局设备及实时在线状态。' })
+  @ApiOperation({
+    summary: '管理员获取所有注册码绑定的物理设备列表',
+    description: '供后台管理员大屏拉取全局设备及实时在线状态。',
+  })
   @ApiResponse({ status: 200, description: '成功获取设备列表' })
   async getAllDevices() {
     return this.registerCodeService.findAllBoundDevices();
@@ -257,7 +378,10 @@ export class RegisterCodeController {
    */
   @Get('my-devices')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取注册码绑定的物理设备列表', description: '供用户端大屏通过激活码文本拉取自己的绑定设备及实时在线状态。' })
+  @ApiOperation({
+    summary: '获取注册码绑定的物理设备列表',
+    description: '供用户端大屏通过激活码文本拉取自己的绑定设备及实时在线状态。',
+  })
   @ApiResponse({ status: 200, description: '成功获取设备列表' })
   async getMyDevices(@Query('code') code: string) {
     if (!code) {
@@ -271,7 +395,10 @@ export class RegisterCodeController {
    */
   @Get('my-status')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取激活码状态', description: '获取当前激活码的过期时间和基本配置。' })
+  @ApiOperation({
+    summary: '获取激活码状态',
+    description: '获取当前激活码的过期时间和基本配置。',
+  })
   @ApiResponse({ status: 200, description: '成功获取状态信息' })
   async getMyStatus(@Query('code') code: string) {
     if (!code) {
@@ -286,7 +413,11 @@ export class RegisterCodeController {
   @Post('import')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: '导入并覆盖式同步存量激活码', description: '上传老系统导出的 xls 格式数据，在内存中直接解构解析，并完成 Upsert 逻辑。' })
+  @ApiOperation({
+    summary: '导入并覆盖式同步存量激活码',
+    description:
+      '上传老系统导出的 xls 格式数据，在内存中直接解构解析，并完成 Upsert 逻辑。',
+  })
   @ApiResponse({ status: 200, description: '成功执行存量导入' })
   async importCodes(@UploadedFile() file: any) {
     if (!file || !file.buffer) {
@@ -300,11 +431,35 @@ export class RegisterCodeController {
    */
   @Get('action-logs')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '分页查询卡密变更审计日志', description: '获取后台管理员对激活码执行的批量制卡、微调、启用禁用、解绑和注销日志' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认 1' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页条数，默认 10' })
-  @ApiQuery({ name: 'code', required: false, type: String, description: '激活卡密过滤' })
-  @ApiQuery({ name: 'actionType', required: false, type: String, description: '操作类型过滤 (GENERATE/ADJUST/ENABLE/DISABLE/UNBIND/DELETE)' })
+  @ApiOperation({
+    summary: '分页查询卡密变更审计日志',
+    description:
+      '获取后台管理员对激活码执行的批量制卡、微调、启用禁用、解绑和注销日志',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: '页码，默认 1',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: '每页条数，默认 10',
+  })
+  @ApiQuery({
+    name: 'code',
+    required: false,
+    type: String,
+    description: '激活卡密过滤',
+  })
+  @ApiQuery({
+    name: 'actionType',
+    required: false,
+    type: String,
+    description: '操作类型过滤 (GENERATE/ADJUST/ENABLE/DISABLE/UNBIND/DELETE)',
+  })
   @ApiResponse({ status: 200, description: '成功获取日志' })
   async getActionLogs(
     @Query('page') page?: string,
@@ -314,7 +469,10 @@ export class RegisterCodeController {
   ) {
     const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
     const limitNum = limit ? Math.max(1, parseInt(limit, 10)) : 10;
-    return this.registerCodeService.findActionLogs(pageNum, limitNum, { code, actionType });
+    return this.registerCodeService.findActionLogs(pageNum, limitNum, {
+      code,
+      actionType,
+    });
   }
 
   /**
@@ -322,11 +480,13 @@ export class RegisterCodeController {
    */
   @Post('verify')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '客户端卡密授权及自动绑定验证', description: '客户端脚本专用。若为新设备且名额未满自动执行绑定，已绑定设备直接通过。' })
+  @ApiOperation({
+    summary: '客户端卡密授权及自动绑定验证',
+    description:
+      '客户端脚本专用。若为新设备且名额未满自动执行绑定，已绑定设备直接通过。',
+  })
   @ApiResponse({ status: 200, description: '验证或绑定成功' })
-  async verifyCode(
-    @Body() body: VerifyRegisterCodeDto
-  ) {
+  async verifyCode(@Body() body: VerifyRegisterCodeDto) {
     return this.registerCodeService.verifyCode(body.code, body.deviceId);
   }
 
@@ -335,7 +495,10 @@ export class RegisterCodeController {
    */
   @Get('my-alert')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取激活码警报配置', description: '供用户端大屏通过激活码拉取报警邮箱及订阅选项。' })
+  @ApiOperation({
+    summary: '获取激活码警报配置',
+    description: '供用户端大屏通过激活码拉取报警邮箱及订阅选项。',
+  })
   async getMyAlert(@Query('code') code: string) {
     if (!code) {
       throw new BadRequestException('参数 code 不能为空');
@@ -348,14 +511,19 @@ export class RegisterCodeController {
    */
   @Patch('my-alert')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '更新激活码警报配置', description: '更新报警接收邮箱及选择的订阅事件' })
-  async updateMyAlert(
-    @Body() body: UpdateMyAlertDto
-  ) {
+  @ApiOperation({
+    summary: '更新激活码警报配置',
+    description: '更新报警接收邮箱及选择的订阅事件',
+  })
+  async updateMyAlert(@Body() body: UpdateMyAlertDto) {
     if (!body.code) {
       throw new BadRequestException('参数 code 不能为空');
     }
-    return this.registerCodeService.updateAlertConfig(body.code, body.alertEmail || '', body.alertConfig);
+    return this.registerCodeService.updateAlertConfig(
+      body.code,
+      body.alertEmail || '',
+      body.alertConfig,
+    );
   }
 
   /**
@@ -363,26 +531,44 @@ export class RegisterCodeController {
    */
   @Get('alerts')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取最近紧急警报历史', description: '供设备管理大屏拉取最近未优雅退出的紧急警报列表。' })
+  @ApiOperation({
+    summary: '获取最近紧急警报历史',
+    description: '供设备管理大屏拉取最近未优雅退出的紧急警报列表。',
+  })
   async getAlertHistory() {
     return this.registerCodeService.getAlertHistory();
   }
-
-
 
   /**
    * 将特定物理设备加入该激活码黑名单
    */
   @Post('my-devices/blacklist')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '添加设备至激活码黑名单', description: '将物理设备加入此卡密黑名单，若设备当前正处于绑定状态，则执行强制解绑下线。' })
+  @ApiOperation({
+    summary: '添加设备至激活码黑名单',
+    description:
+      '将物理设备加入此卡密黑名单，若设备当前正处于绑定状态，则执行强制解绑下线。',
+  })
   async addDeviceToBlacklist(
-    @Body() body: { code: string; deviceId: string; deviceName?: string; reason?: string; operator?: string },
+    @Body()
+    body: {
+      code: string;
+      deviceId: string;
+      deviceName?: string;
+      reason?: string;
+      operator?: string;
+    },
   ) {
     if (!body.code || !body.deviceId) {
       throw new BadRequestException('参数 code 和 deviceId 不能为空');
     }
-    return this.registerCodeService.addDeviceToBlacklist(body.code, body.deviceId, body.deviceName, body.reason, body.operator || 'user');
+    return this.registerCodeService.addDeviceToBlacklist(
+      body.code,
+      body.deviceId,
+      body.deviceName,
+      body.reason,
+      body.operator || 'user',
+    );
   }
 
   /**
@@ -390,7 +576,10 @@ export class RegisterCodeController {
    */
   @Delete('my-devices/blacklist')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '将物理设备移出卡密黑名单', description: '解除拉黑，允许该设备再次进行登录鉴权与绑定。' })
+  @ApiOperation({
+    summary: '将物理设备移出卡密黑名单',
+    description: '解除拉黑，允许该设备再次进行登录鉴权与绑定。',
+  })
   async removeDeviceFromBlacklist(
     @Query('code') code: string,
     @Query('deviceId') deviceId: string,
@@ -399,7 +588,11 @@ export class RegisterCodeController {
     if (!code || !deviceId) {
       throw new BadRequestException('参数 code 和 deviceId 不能为空');
     }
-    return this.registerCodeService.removeDeviceFromBlacklist(code, deviceId, operator || 'user');
+    return this.registerCodeService.removeDeviceFromBlacklist(
+      code,
+      deviceId,
+      operator || 'user',
+    );
   }
 
   /**
@@ -407,7 +600,10 @@ export class RegisterCodeController {
    */
   @Get('my-devices/blacklist')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取激活码设备黑名单', description: '查询该激活码下拉黑的所有设备列表。' })
+  @ApiOperation({
+    summary: '获取激活码设备黑名单',
+    description: '查询该激活码下拉黑的所有设备列表。',
+  })
   async getBlacklist(@Query('code') code: string) {
     if (!code) {
       throw new BadRequestException('参数 code 不能为空');
@@ -420,7 +616,10 @@ export class RegisterCodeController {
    */
   @Get('my-devices/history')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取设备解绑历史记录', description: '查询该激活码名下所有解绑历史审计记录。' })
+  @ApiOperation({
+    summary: '获取设备解绑历史记录',
+    description: '查询该激活码名下所有解绑历史审计记录。',
+  })
   async getUnbindHistory(@Query('code') code: string) {
     if (!code) {
       throw new BadRequestException('参数 code 不能为空');
@@ -433,7 +632,10 @@ export class RegisterCodeController {
    */
   @Get('my-devices/account-history')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取设备账号登录历史记录', description: '查询该激活码下拉特定设备在2天内的账号流转时间列表。' })
+  @ApiOperation({
+    summary: '获取设备账号登录历史记录',
+    description: '查询该激活码下拉特定设备在2天内的账号流转时间列表。',
+  })
   async getAccountHistory(
     @Query('code') code: string,
     @Query('deviceId') deviceId: string,
@@ -444,5 +646,3 @@ export class RegisterCodeController {
     return this.registerCodeService.getDeviceAccountHistory(code, deviceId);
   }
 }
-
-

@@ -12,10 +12,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { TcpSimulatorController } from './tcp-simulator.controller';
 
 @Module({
-  imports: [
-    PrismaModule,
-    forwardRef(() => RegisterCodeModule),
-  ],
+  imports: [PrismaModule, forwardRef(() => RegisterCodeModule)],
   controllers: [TcpSimulatorController],
   providers: [TcpSocketService],
   exports: [TcpSocketService],

@@ -39,7 +39,6 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-
 @ApiTags('User 用户管理')
 @Controller('users')
 export class UserController {
@@ -50,10 +49,28 @@ export class UserController {
    */
   @Get()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '分页获取用户列表', description: '支持通过用户名、昵称或邮箱模糊检索，联表返回所属角色。' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: '页码，默认 1' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: '每页条数，默认 10' })
-  @ApiQuery({ name: 'search', required: false, type: String, description: '模糊搜索内容（用户名/昵称/邮箱）' })
+  @ApiOperation({
+    summary: '分页获取用户列表',
+    description: '支持通过用户名、昵称或邮箱模糊检索，联表返回所属角色。',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: '页码，默认 1',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: '每页条数，默认 10',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: '模糊搜索内容（用户名/昵称/邮箱）',
+  })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getList(
     @Query('page') page?: string,
@@ -70,7 +87,11 @@ export class UserController {
    */
   @Get('roles')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取可分配的角色列表', description: '返回系统内已经存在的所有角色数据，供添加新账号时进行角色选择。' })
+  @ApiOperation({
+    summary: '获取可分配的角色列表',
+    description:
+      '返回系统内已经存在的所有角色数据，供添加新账号时进行角色选择。',
+  })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getRoles() {
     return this.userService.getRoles();
@@ -81,7 +102,10 @@ export class UserController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: '创建系统用户', description: '添加一个系统新账号，密码经过 bcrypt 加密存储。' })
+  @ApiOperation({
+    summary: '创建系统用户',
+    description: '添加一个系统新账号，密码经过 bcrypt 加密存储。',
+  })
   @ApiResponse({ status: 201, description: '创建成功' })
   @ApiResponse({ status: 400, description: '用户名已存在' })
   async createUser(@Body() body: CreateUserDto) {
@@ -93,7 +117,10 @@ export class UserController {
    */
   @Put(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '编辑系统用户', description: '修改系统用户的邮箱、昵称、分配角色或账户启用/禁用状态。' })
+  @ApiOperation({
+    summary: '编辑系统用户',
+    description: '修改系统用户的邮箱、昵称、分配角色或账户启用/禁用状态。',
+  })
   @ApiResponse({ status: 200, description: '修改成功' })
   @ApiResponse({ status: 404, description: '用户不存在' })
   async updateUser(@Param('id') id: string, @Body() body: UpdateUserDto) {
@@ -105,7 +132,10 @@ export class UserController {
    */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '注销/删除用户', description: '物理从数据库中删除指定用户，操作具有高敏感性。' })
+  @ApiOperation({
+    summary: '注销/删除用户',
+    description: '物理从数据库中删除指定用户，操作具有高敏感性。',
+  })
   @ApiResponse({ status: 200, description: '删除成功' })
   @ApiResponse({ status: 404, description: '用户不存在' })
   async deleteUser(@Param('id') id: string) {
@@ -118,7 +148,10 @@ export class UserController {
    */
   @Get('roles/detail')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '获取角色详情及其权限码', description: '用于角色权限管理控制台加载全量角色及绑定关系。' })
+  @ApiOperation({
+    summary: '获取角色详情及其权限码',
+    description: '用于角色权限管理控制台加载全量角色及绑定关系。',
+  })
   @ApiResponse({ status: 200, description: '查询成功' })
   async getRolesDetail() {
     return this.userService.getRolesWithPermissions();
@@ -129,7 +162,10 @@ export class UserController {
    */
   @Put('roles/:id/permissions')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '保存角色的权限配置', description: '为指定角色重新覆盖配置其绑定的细粒度系统权限码列表。' })
+  @ApiOperation({
+    summary: '保存角色的权限配置',
+    description: '为指定角色重新覆盖配置其绑定的细粒度系统权限码列表。',
+  })
   @ApiResponse({ status: 200, description: '更新成功' })
   async updateRolePermissions(
     @Param('id') id: string,
@@ -198,4 +234,3 @@ export class UserController {
     );
   }
 }
-

@@ -40,10 +40,11 @@ async function bootstrap() {
   // 跨域通信时必须允许 credentials 携带。当 credentials 设为 true 时，
   // origin 绝不能设置为通配符 "*"，此处设为 true 会自动动态反射请求头的 origin。
   app.enableCors({
-    origin: true, 
-    credentials: true, 
+    origin: true,
+    credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type,Accept,Authorization,X-Requested-With,X-License-Code',
+    allowedHeaders:
+      'Content-Type,Accept,Authorization,X-Requested-With,X-License-Code',
   });
 
   // 4. 启用全局强类型 DTO 校验管道，拦截非法字段
@@ -60,8 +61,8 @@ async function bootstrap() {
     .setTitle('XBNEST 全栈智能后台 API 接口文档')
     .setDescription(
       'XBNEST 全栈管理系统后端 HTTP API 接口说明书。' +
-      '涵盖用户鉴权、RBAC 角色权限、注册码授权速率限制、高频脚本终端日志分发及 AI Agent 推理调度核心板块。' +
-      '前端地址: http://localhost:8080 | 后端地址: http://localhost:8081 | 文档地址: /api/docs'
+        '涵盖用户鉴权、RBAC 角色权限、注册码授权速率限制、高频脚本终端日志分发及 AI Agent 推理调度核心板块。' +
+        '前端地址: http://localhost:8080 | 后端地址: http://localhost:8081 | 文档地址: /api/docs',
     )
     .setVersion('1.0.0')
     .addBearerAuth(
@@ -71,7 +72,7 @@ async function bootstrap() {
         bearerFormat: 'JWT',
         description: '方便 Bearer JWT 调试令牌',
       },
-      'bearer'
+      'bearer',
     )
     .build();
 
@@ -110,11 +111,16 @@ async function bootstrap() {
   try {
     const userCount = await prisma.user.count();
     if (userCount === 0) {
-      console.log('[NestJS] ⚙️ 检测到 sys_user 数据库表为空，正在主进程物理上下文中自动进行数据播种...');
+      console.log(
+        '[NestJS] ⚙️ 检测到 sys_user 数据库表为空，正在主进程物理上下文中自动进行数据播种...',
+      );
       await seedDatabase(prisma);
     }
   } catch (seedErr) {
-    console.warn('[NestJS] ⚠️ 自动执行初始数据播种提示 (如迁移阶段表尚不存在):', seedErr.message);
+    console.warn(
+      '[NestJS] ⚠️ 自动执行初始数据播种提示 (如迁移阶段表尚不存在):',
+      seedErr.message,
+    );
   } finally {
     await prisma.$disconnect();
     if (pool) {
@@ -128,8 +134,12 @@ async function bootstrap() {
   console.log(`[NestJS] 🚀 智能后端服务成功拉起！`);
   console.log(`[NestJS] 🔗 联调服务地址: http://localhost:${port}/api`);
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`[NestJS] 📖 交互 Swagger 文档已托管在: http://localhost:${port}/api/docs`);
-    console.log(`[NestJS] 🚀 Scalar 接口文档已托管在: http://localhost:${port}/api/reference`);
+    console.log(
+      `[NestJS] 📖 交互 Swagger 文档已托管在: http://localhost:${port}/api/docs`,
+    );
+    console.log(
+      `[NestJS] 🚀 Scalar 接口文档已托管在: http://localhost:${port}/api/reference`,
+    );
   }
 }
 bootstrap();

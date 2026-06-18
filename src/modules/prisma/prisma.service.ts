@@ -11,7 +11,10 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   private pool?: Pool;
 
   constructor() {
@@ -21,7 +24,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     const dbUrl = process.env.DATABASE_URL || '';
     let poolInstance: Pool | undefined;
 
-    if (dbUrl.startsWith('prisma://') || dbUrl.startsWith('prisma+postgres://')) {
+    if (
+      dbUrl.startsWith('prisma://') ||
+      dbUrl.startsWith('prisma+postgres://')
+    ) {
       options.accelerateUrl = dbUrl;
     } else if (dbUrl) {
       poolInstance = new Pool({ connectionString: dbUrl });
@@ -37,7 +43,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    */
   async onModuleInit() {
     await this.$connect();
-    console.log('[PrismaService] 🔌 PostgreSQL (pglite) 数据库连接已成功物理激活。');
+    console.log(
+      '[PrismaService] 🔌 PostgreSQL (pglite) 数据库连接已成功物理激活。',
+    );
   }
 
   /**
@@ -48,6 +56,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     if (this.pool) {
       await this.pool.end();
     }
-    console.log('[PrismaService] 🔌 PostgreSQL (pglite) 数据库连接池已安全释放销毁。');
+    console.log(
+      '[PrismaService] 🔌 PostgreSQL (pglite) 数据库连接池已安全释放销毁。',
+    );
   }
 }

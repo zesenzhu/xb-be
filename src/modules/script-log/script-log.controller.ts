@@ -74,11 +74,10 @@ export class ScriptLogController {
   @Sse('user-stream')
   @ApiOperation({
     summary: '用户端全局混合长连接通道 (SSE)',
-    description: '网页端订阅此注册码关联的所有物理设备的实时日志、上线/下线列表更新、设备状态电量变动以及全局心跳包。',
+    description:
+      '网页端订阅此注册码关联的所有物理设备的实时日志、上线/下线列表更新、设备状态电量变动以及全局心跳包。',
   })
-  userStreamLogs(
-    @Query('code') code: string,
-  ): Observable<MessageEvent> {
+  userStreamLogs(@Query('code') code: string): Observable<MessageEvent> {
     if (!code) {
       throw new BadRequestException('参数 code (授权码) 不能为空');
     }
@@ -97,7 +96,7 @@ export class ScriptLogController {
             ...event.log,
           },
         },
-      }))
+      })),
     );
 
     // 2. 设备上下线与状态电量变动事件订阅
@@ -108,7 +107,7 @@ export class ScriptLogController {
           type: event.type, // 'device_list' | 'device_status'
           payload: event.payload,
         },
-      }))
+      })),
     );
 
     // 3. 全局统一心跳定时任务 (10秒一次) 用于维持连线并让前端知道链路活跃
@@ -120,14 +119,14 @@ export class ScriptLogController {
             timestamp: Date.now(),
           },
         },
-      }))
+      })),
     );
 
     // 4. 合并三路数据流输出，并在关闭时自动卸载，断开所属设备的日志推送以省电
     return merge(logsStream$, deviceStateStream$, heartbeatStream$).pipe(
       finalize(() => {
         this.tcpSocketService.removeWebClient(code);
-      })
+      }),
     );
   }
 
@@ -181,7 +180,7 @@ export class ScriptLogController {
       const uniqueLogs = Array.from(
         new Map(allLogs.map((item) => [item.id, item])).values(),
       );
-      
+
       // 按时间戳从最新到最老倒序排列
       uniqueLogs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
@@ -263,16 +262,16 @@ export class ScriptLogController {
   @Get('export')
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: '管理员导出指定设备24小时分级日志' })
-  async exportDeviceLogs(
-    @Query('deviceId') deviceId: string,
-    @Res() res: any,
-  ) {
+  async exportDeviceLogs(@Query('deviceId') deviceId: string, @Res() res: any) {
     if (!deviceId) {
       throw new BadRequestException('参数 deviceId 不能为空');
     }
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="device-${deviceId}-24h.log"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="device-${deviceId}-24h.log"`,
+    );
 
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -298,7 +297,7 @@ export class ScriptLogController {
     const uniqueLogs = Array.from(
       new Map(allLogs.map((item) => [item.id, item])).values(),
     );
-    
+
     // 正序排列
     uniqueLogs.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
@@ -307,7 +306,7 @@ export class ScriptLogController {
       const formattedLine = `[${log.timestamp.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}] [${log.level}] ${log.message}\n`;
       res.write(formattedLine);
     }
-    
+
     res.end();
   }
 }

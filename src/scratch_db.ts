@@ -9,11 +9,13 @@ async function main() {
       code: true,
       status: true,
       bindDevices: true,
-    }
+    },
   });
   console.log('Register Codes in Database:');
   console.dir(codes, { depth: null });
   console.log('--- DB DIAGNOSTICS END ---');
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

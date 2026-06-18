@@ -5,10 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { TcpSocketModule } from '../tcp-socket/tcp-socket.module';
 
 @Module({
-  imports: [
-    PrismaModule,
-    TcpSocketModule,
-  ],
+  imports: [PrismaModule, TcpSocketModule],
   controllers: [DashboardController],
   providers: [DashboardService],
   exports: [DashboardService],

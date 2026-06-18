@@ -1,4 +1,15 @@
-import { Controller, Get, Patch, Body, Query, UseGuards, HttpCode, HttpStatus, Sse, MessageEvent } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Body,
+  Query,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+  Sse,
+  MessageEvent,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { NotificationService } from './notification.service';
 import { AdminGuard } from '../debug/admin.guard';
@@ -20,7 +31,8 @@ export class NotificationController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const isReadBool = isRead === 'true' ? true : isRead === 'false' ? false : undefined;
+    const isReadBool =
+      isRead === 'true' ? true : isRead === 'false' ? false : undefined;
     return this.notificationService.findAll({
       isRead: isReadBool,
       level,
@@ -57,10 +69,15 @@ export class NotificationController {
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: '管理员端 SSE 消息推送流' })
   streamNotifications(): Observable<MessageEvent> {
-    return this.notificationService.notificationBroadcaster$.asObservable().pipe(
-      map((notification) => ({
-        data: JSON.stringify(notification),
-      } as MessageEvent)),
-    );
+    return this.notificationService.notificationBroadcaster$
+      .asObservable()
+      .pipe(
+        map(
+          (notification) =>
+            ({
+              data: JSON.stringify(notification),
+            }) as MessageEvent,
+        ),
+      );
   }
 }

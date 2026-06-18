@@ -35,7 +35,9 @@ export class DashboardService {
       },
     });
 
-    this.logger.log(`[系统维护] 管理员手动触发了清理 ${days} 天前的运行日志，成功删除 ${result.count} 条记录。`);
+    this.logger.log(
+      `[系统维护] 管理员手动触发了清理 ${days} 天前的运行日志，成功删除 ${result.count} 条记录。`,
+    );
     return {
       success: true,
       message: `已清理 ${days} 天前的所有运行日志，共删除 ${result.count} 条记录。`,
@@ -57,7 +59,10 @@ export class DashboardService {
     const cpuCount = os.cpus().length;
     const loadAvg = os.loadavg();
     // 用 1 分钟平均负载估算占用率
-    const cpuUsageRate = Math.min(100, Math.round((loadAvg[0] / cpuCount) * 100));
+    const cpuUsageRate = Math.min(
+      100,
+      Math.round((loadAvg[0] / cpuCount) * 100),
+    );
 
     // 3. 磁盘占用 (根分区 /)
     let diskTotal = 'N/A';
@@ -66,7 +71,7 @@ export class DashboardService {
     let diskUsageRate = 0;
 
     try {
-      const { stdout } = await execAsync("df -h / | tail -1");
+      const { stdout } = await execAsync('df -h / | tail -1');
       const parts = stdout.trim().split(/\s+/);
       const usePercentPart = parts.find((p) => p.includes('%'));
       if (usePercentPart) {
@@ -87,7 +92,7 @@ export class DashboardService {
     try {
       logTotalCount = await this.prisma.scriptLog.count();
       const sizeResult: any[] = await this.prisma.$queryRawUnsafe(
-        `SELECT pg_size_pretty(pg_total_relation_size('script_log')) as size`
+        `SELECT pg_size_pretty(pg_total_relation_size('script_log')) as size`,
       );
       if (sizeResult && sizeResult[0]) {
         logTableSize = sizeResult[0].size;
@@ -139,7 +144,8 @@ export class DashboardService {
     });
     let userGrowthDescription = '较上周新增 +0%';
     if (usersBeforeLastWeek > 0) {
-      const growth = ((totalUsers - usersBeforeLastWeek) / usersBeforeLastWeek) * 100;
+      const growth =
+        ((totalUsers - usersBeforeLastWeek) / usersBeforeLastWeek) * 100;
       userGrowthDescription = `较上周新增 +${growth.toFixed(1)}%`;
     } else if (totalUsers > 0) {
       // 兜底：如果之前用户数为0而当前有用户，表示新增
@@ -153,11 +159,13 @@ export class DashboardService {
         NOT: { activatedAt: null },
       },
     });
-    const activationRate = totalCodes > 0 ? (activeCodes / totalCodes) * 100 : 0;
+    const activationRate =
+      totalCodes > 0 ? (activeCodes / totalCodes) * 100 : 0;
     const activeCodesDescription = `全系统激活率 ${activationRate.toFixed(1)}%`;
 
     // 3. MQTT 设备状态 (在线设备数 / 最大绑定容量)
-    const onlineDevicesCount = this.tcpSocketService.getActiveConnectionsCount();
+    const onlineDevicesCount =
+      this.tcpSocketService.getActiveConnectionsCount();
     // 查询所有激活卡允许的最大设备数之和
     const activeRegisterCodes = await this.prisma.registerCode.findMany({
       where: {
@@ -167,16 +175,23 @@ export class DashboardService {
         maxActive: true,
       },
     });
-    const maxActiveDevices = activeRegisterCodes.reduce((sum, item) => sum + item.maxActive, 0);
+    const maxActiveDevices = activeRegisterCodes.reduce(
+      (sum, item) => sum + item.maxActive,
+      0,
+    );
     const resolvedMax = Math.max(onlineDevicesCount, maxActiveDevices); // 兜底：防止最大激活数小于当前在线数
-    const onlineRate = resolvedMax > 0 ? (onlineDevicesCount / resolvedMax) * 100 : 0;
+    const onlineRate =
+      resolvedMax > 0 ? (onlineDevicesCount / resolvedMax) * 100 : 0;
     const onlineDevices = `${onlineDevicesCount} / ${resolvedMax} 台`;
     const onlineDevicesDescription = `当前在线率 ${onlineRate.toFixed(1)}%`;
 
     // 4. AI 调用 Token 数（动态累加，每次访问根据时间流逝模拟产生 100~500 Token 消耗）
-    const elapsedSeconds = Math.floor((Date.now() - DashboardService.baseUpdateTime) / 1000);
+    const elapsedSeconds = Math.floor(
+      (Date.now() - DashboardService.baseUpdateTime) / 1000,
+    );
     if (elapsedSeconds > 0) {
-      DashboardService.totalAiTokens += elapsedSeconds * Math.floor(Math.random() * 5 + 2); // 每秒增长2~7个 token
+      DashboardService.totalAiTokens +=
+        elapsedSeconds * Math.floor(Math.random() * 5 + 2); // 每秒增长2~7个 token
       DashboardService.baseUpdateTime = Date.now();
     }
     const aiTokensValue = `${DashboardService.totalAiTokens.toLocaleString()} 条`;
@@ -215,17 +230,25 @@ export class DashboardService {
    */
   async getTrendData() {
     // 动态生成最近的 7 个时间点，每 4 小时一段
-    const dataPoints: Array<{ time: string; timestampStart: Date; timestampEnd: Date }> = [];
+    const dataPoints: Array<{
+      time: string;
+      timestampStart: Date;
+      timestampEnd: Date;
+    }> = [];
     const now = new Date();
-    
+
     for (let i = 6; i >= 0; i--) {
       const targetTime = new Date(now.getTime() - i * 4 * 60 * 60 * 1000);
       const hours = targetTime.getHours();
       const timeStr = `${hours.toString().padStart(2, '0')}:00`;
-      
+
       const start = new Date(targetTime.getTime() - 2 * 60 * 60 * 1000);
       const end = new Date(targetTime.getTime() + 2 * 60 * 60 * 1000);
-      dataPoints.push({ time: timeStr, timestampStart: start, timestampEnd: end });
+      dataPoints.push({
+        time: timeStr,
+        timestampStart: start,
+        timestampEnd: end,
+      });
     }
 
     const trendData = [];
@@ -261,8 +284,14 @@ export class DashboardService {
       }
 
       // 加入上下波动
-      const load = Math.min(100, Math.max(10, baseLoad + Math.floor(Math.random() * 15 - 7)));
-      const aiCall = Math.max(5, baseAiCall + Math.floor(Math.random() * 20 - 10));
+      const load = Math.min(
+        100,
+        Math.max(10, baseLoad + Math.floor(Math.random() * 15 - 7)),
+      );
+      const aiCall = Math.max(
+        5,
+        baseAiCall + Math.floor(Math.random() * 20 - 10),
+      );
 
       trendData.push({
         time: point.time,
@@ -287,10 +316,16 @@ export class DashboardService {
     });
 
     const activeModels = Array.from(new Set(configs.map((c) => c.model)));
-    
+
     // 默认大模型列表，防止后台没有任何配置
-    const defaultModels = ['DeepSeek-V3', 'DeepSeek-R1', 'GPT-4o', 'Claude-3.5'];
-    const resolvedModels = activeModels.length > 0 ? activeModels : defaultModels;
+    const defaultModels = [
+      'DeepSeek-V3',
+      'DeepSeek-R1',
+      'GPT-4o',
+      'Claude-3.5',
+    ];
+    const resolvedModels =
+      activeModels.length > 0 ? activeModels : defaultModels;
 
     return resolvedModels.map((model) => {
       // 根据模型名字，生成一个代表其规格的 token 消耗和响应延迟
@@ -340,7 +375,7 @@ export class DashboardService {
       return logs.map((log) => {
         // 格式化时间为 HH:mm:ss
         const timeStr = new Date(log.timestamp).toTimeString().split(' ')[0];
-        
+
         // 提取模块名和主要内容。假如格式是 "[MODULE] message" 结构
         let moduleName = 'CLIENT';
         let cleanMessage = log.message;
@@ -362,7 +397,13 @@ export class DashboardService {
 
     // 兜底 Mock 数据，确保当没有真实报错日志时界面不会空荡荡
     return [
-      { id: 'mock-1', level: 'WARN', message: '注册激活管控: 激活授权成功。当前数据库暂无异常上报日志', time: new Date().toTimeString().split(' ')[0], device: 'SYS-INIT' },
+      {
+        id: 'mock-1',
+        level: 'WARN',
+        message: '注册激活管控: 激活授权成功。当前数据库暂无异常上报日志',
+        time: new Date().toTimeString().split(' ')[0],
+        device: 'SYS-INIT',
+      },
     ];
   }
 
@@ -370,13 +411,14 @@ export class DashboardService {
    * 整合所有数据大包
    */
   async getOverview() {
-    const [cards, trendData, modelData, recentLogs, serverHealth] = await Promise.all([
-      this.getOverviewCards(),
-      this.getTrendData(),
-      this.getModelData(),
-      this.getRecentLogs(),
-      this.getServerHealth(),
-    ]);
+    const [cards, trendData, modelData, recentLogs, serverHealth] =
+      await Promise.all([
+        this.getOverviewCards(),
+        this.getTrendData(),
+        this.getModelData(),
+        this.getRecentLogs(),
+        this.getServerHealth(),
+      ]);
 
     return {
       cards,

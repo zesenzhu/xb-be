@@ -20,7 +20,10 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { UserLicenseLoginDto } from './dto/user-license-login.dto';
-import { SendForgotPasswordCodeDto, ResetPasswordDto } from './dto/forgot-password.dto';
+import {
+  SendForgotPasswordCodeDto,
+  ResetPasswordDto,
+} from './dto/forgot-password.dto';
 
 interface TokenPayload {
   sub: string;
@@ -34,7 +37,6 @@ interface RefreshRequest extends express.Request {
     refreshToken?: string;
   };
 }
-
 
 @ApiTags('Auth 身份认证')
 @Controller('auth')
@@ -50,7 +52,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '管理员登录',
-    description: '使用管理员账号和密码进行鉴权，成功后会将 access_token 和 refresh_token 写入管理员端的 HttpOnly Cookie。',
+    description:
+      '使用管理员账号和密码进行鉴权，成功后会将 access_token 和 refresh_token 写入管理员端的 HttpOnly Cookie。',
   })
   @ApiResponse({ status: 200, description: '登录成功' })
   @ApiResponse({ status: 401, description: '账号不存在或密码错误' })
@@ -58,8 +61,11 @@ export class AuthController {
     @Body() body: AdminLoginDto,
     @Res({ passthrough: true }) res: express.Response,
   ) {
-    const user = await this.authService.validateAdmin(body.username, body.password);
-    
+    const user = await this.authService.validateAdmin(
+      body.username,
+      body.password,
+    );
+
     // 动态映射角色标识，防止前端 role.code 识别崩溃
     const roleCode = user.role.name === '超级管理员' ? 'admin' : 'operator';
 
@@ -90,7 +96,7 @@ export class AuthController {
           code: roleCode,
         },
       },
-      permissions: user.role.permissions.map(p => p.code),
+      permissions: user.role.permissions.map((p) => p.code),
     };
   }
 
@@ -104,7 +110,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '用户端激活码登录',
-    description: '使用生成的授权激活码登录并自动物理绑定当前设备，成功后会将 user_access_token 写入用户端的 HttpOnly Cookie。无需密码。',
+    description:
+      '使用生成的授权激活码登录并自动物理绑定当前设备，成功后会将 user_access_token 写入用户端的 HttpOnly Cookie。无需密码。',
   })
   @ApiResponse({ status: 200, description: '设备验证并激活登录成功' })
   @ApiResponse({ status: 400, description: '激活码失效或设备数已满' })
@@ -183,7 +190,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '管理员 Token 静默刷新',
-    description: '通过读取 HttpOnly Cookie 中的 refresh_token 进行静默无感续签 access_token。',
+    description:
+      '通过读取 HttpOnly Cookie 中的 refresh_token 进行静默无感续签 access_token。',
   })
   async adminRefresh(
     @Req() req: RefreshRequest,
@@ -232,7 +240,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '用户端 Token 静默刷新',
-    description: '通过读取 HttpOnly Cookie 中的 user_refresh_token 进行静默无感续签 user_access_token。',
+    description:
+      '通过读取 HttpOnly Cookie 中的 user_refresh_token 进行静默无感续签 user_access_token。',
   })
   async userRefresh(
     @Req() req: RefreshRequest,
@@ -325,7 +334,10 @@ export class AuthController {
     description: '校验6位安全邮箱验证码，校验通过后直接覆盖设置新密码。',
   })
   async resetPassword(@Body() body: ResetPasswordDto) {
-    return this.authService.resetPasswordByCode(body.email, body.code, body.newPassword);
+    return this.authService.resetPasswordByCode(
+      body.email,
+      body.code,
+      body.newPassword,
+    );
   }
 }
-

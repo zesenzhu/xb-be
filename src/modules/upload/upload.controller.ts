@@ -10,7 +10,13 @@ import {
   Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import * as fs from 'fs';
@@ -35,8 +41,13 @@ export class UploadController {
     FileInterceptor('file', {
       storage: diskStorage({
         destination: './uploads/avatars',
-        filename: (req: any, file: Express.Multer.File, callback: (error: Error | null, filename: string) => void) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        filename: (
+          req: any,
+          file: Express.Multer.File,
+          callback: (error: Error | null, filename: string) => void,
+        ) => {
+          const uniqueSuffix =
+            Date.now() + '-' + Math.round(Math.random() * 1e9);
           const ext = extname(file.originalname);
           callback(null, `avatar-${uniqueSuffix}${ext}`);
         },
@@ -44,11 +55,17 @@ export class UploadController {
       limits: {
         fileSize: 10 * 1024 * 1024, // ⚠️ 上传大小放宽至 10MB
       },
-      fileFilter: (req: any, file: Express.Multer.File, callback: (error: Error | null, acceptFile: boolean) => void) => {
+      fileFilter: (
+        req: any,
+        file: Express.Multer.File,
+        callback: (error: Error | null, acceptFile: boolean) => void,
+      ) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
           return callback(
-            new BadRequestException('只允许上传 JPG/JPEG/PNG/GIF/WEBP 格式的图片文件！'),
-            false
+            new BadRequestException(
+              '只允许上传 JPG/JPEG/PNG/GIF/WEBP 格式的图片文件！',
+            ),
+            false,
           );
         }
         callback(null, true);
@@ -57,7 +74,8 @@ export class UploadController {
   )
   @ApiOperation({
     summary: '上传用户头像',
-    description: '上传本地图片作为用户头像，文件大小限制为 10MB，格式限 JPG/PNG/GIF/WEBP。只有已登录的管理员和操作员才能调用。',
+    description:
+      '上传本地图片作为用户头像，文件大小限制为 10MB，格式限 JPG/PNG/GIF/WEBP。只有已登录的管理员和操作员才能调用。',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -71,7 +89,10 @@ export class UploadController {
       },
     },
   })
-  @ApiResponse({ status: 200, description: '上传成功，返回文件相对访问地址，并自动清理旧文件且入库更新' })
+  @ApiResponse({
+    status: 200,
+    description: '上传成功，返回文件相对访问地址，并自动清理旧文件且入库更新',
+  })
   async uploadAvatar(
     @UploadedFile() file: Express.Multer.File,
     @Req() req: any,
@@ -92,13 +113,18 @@ export class UploadController {
 
     // 2. 如果存在本地物理老头像，将其安全地从磁盘中物理删除
     if (user && user.avatar && user.avatar.startsWith('/uploads/')) {
-      const relativePath = user.avatar.startsWith('/') ? user.avatar.substring(1) : user.avatar;
+      const relativePath = user.avatar.startsWith('/')
+        ? user.avatar.substring(1)
+        : user.avatar;
       const oldFilePath = join(process.cwd(), relativePath);
       if (fs.existsSync(oldFilePath)) {
         try {
           fs.unlinkSync(oldFilePath);
         } catch (err) {
-          console.error(`[Upload] 物理清除旧头像文件 [${oldFilePath}] 失败:`, err);
+          console.error(
+            `[Upload] 物理清除旧头像文件 [${oldFilePath}] 失败:`,
+            err,
+          );
         }
       }
     }

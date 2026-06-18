@@ -5,14 +5,19 @@
  * @date: 2026-06-06
  */
 
-import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TcpSocketService } from '../tcp-socket/tcp-socket.service';
 import * as crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { NotificationService } from '../notification/notification.service';
-
 
 export interface BindDeviceItem {
   deviceId: string;
@@ -45,17 +50,21 @@ export class RegisterCodeService {
   /**
    * 分页获取激活码列表并模糊检索
    */
-  async findAll(page: number, limit: number, options?: {
-    code?: string;
-    appName?: string;
-    cardType?: string;
-    deviceId?: string;
-    status?: string;
-    expireStart?: string;
-    expireEnd?: string;
-    isEnabled?: boolean;
-    source?: string;
-  }) {
+  async findAll(
+    page: number,
+    limit: number,
+    options?: {
+      code?: string;
+      appName?: string;
+      cardType?: string;
+      deviceId?: string;
+      status?: string;
+      expireStart?: string;
+      expireEnd?: string;
+      isEnabled?: boolean;
+      source?: string;
+    },
+  ) {
     const skip = (page - 1) * limit;
     const where: Prisma.RegisterCodeWhereInput = {};
 
@@ -81,18 +90,28 @@ export class RegisterCodeService {
 
     if (options?.deviceId) {
       where.bindDevices = {
-        array_contains: [{ deviceId: options.deviceId }]
+        array_contains: [{ deviceId: options.deviceId }],
       };
     }
 
     if (options?.status) {
       let statusNum: number | undefined;
       switch (options.status) {
-        case 'disabled': statusNum = 0; break;
-        case 'unused': statusNum = 1; break;
-        case 'active': statusNum = 2; break;
-        case 'expired': statusNum = 3; break;
-        case 'full': statusNum = 4; break;
+        case 'disabled':
+          statusNum = 0;
+          break;
+        case 'unused':
+          statusNum = 1;
+          break;
+        case 'active':
+          statusNum = 2;
+          break;
+        case 'expired':
+          statusNum = 3;
+          break;
+        case 'full':
+          statusNum = 4;
+          break;
       }
       if (statusNum !== undefined) {
         where.status = statusNum;
@@ -123,10 +142,7 @@ export class RegisterCodeService {
         where,
         skip,
         take: limit,
-        orderBy: [
-          { createdAt: 'desc' },
-          { id: 'desc' }
-        ],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.registerCode.count({ where }),
     ]);
@@ -135,9 +151,10 @@ export class RegisterCodeService {
     const formattedList = list.map((item) => {
       let devices: BindDeviceItem[] = [];
       try {
-        devices = typeof item.bindDevices === 'string'
-          ? JSON.parse(item.bindDevices)
-          : (item.bindDevices as unknown as BindDeviceItem[]) || [];
+        devices =
+          typeof item.bindDevices === 'string'
+            ? JSON.parse(item.bindDevices)
+            : (item.bindDevices as unknown as BindDeviceItem[]) || [];
       } catch (e) {
         devices = [];
       }
@@ -146,7 +163,11 @@ export class RegisterCodeService {
 
       // 实时动态矫正过期状态
       let currentStatus = item.status;
-      if (item.expireTime && new Date() > new Date(item.expireTime) && item.status !== 0) {
+      if (
+        item.expireTime &&
+        new Date() > new Date(item.expireTime) &&
+        item.status !== 0
+      ) {
         currentStatus = 3; // 过期
       }
 
@@ -240,7 +261,11 @@ export class RegisterCodeService {
       });
 
       generatedCodes.push(newRecord);
-      await this.recordActionLog(newRecord.code, 'GENERATE', `批量自动制卡生成。关联应用: ${appName || '通用'} | 时长: ${durationMinutes}分钟`);
+      await this.recordActionLog(
+        newRecord.code,
+        'GENERATE',
+        `批量自动制卡生成。关联应用: ${appName || '通用'} | 时长: ${durationMinutes}分钟`,
+      );
     }
 
     return {
@@ -253,7 +278,12 @@ export class RegisterCodeService {
   /**
    * 客户端免密登录激活校验状态机
    */
-  async activateCode(code: string, deviceId: string, appName?: string, deviceInfo?: any) {
+  async activateCode(
+    code: string,
+    deviceId: string,
+    appName?: string,
+    deviceInfo?: any,
+  ) {
     if (deviceInfo && typeof deviceInfo === 'object') {
       const info = deviceInfo as Record<string, any>;
       if (info.ip === 'error' || info.ip === 'null') {
@@ -293,14 +323,17 @@ export class RegisterCodeService {
 
     // 应用关联校验
     if (record.appName && record.appName !== appName) {
-      throw new BadRequestException(`此注册码限制专用于应用: [${record.appName}]`);
+      throw new BadRequestException(
+        `此注册码限制专用于应用: [${record.appName}]`,
+      );
     }
 
     let devices: BindDeviceItem[] = [];
     try {
-      devices = typeof record.bindDevices === 'string'
-        ? JSON.parse(record.bindDevices)
-        : (record.bindDevices as unknown as BindDeviceItem[]) || [];
+      devices =
+        typeof record.bindDevices === 'string'
+          ? JSON.parse(record.bindDevices)
+          : (record.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       devices = [];
     }
@@ -316,9 +349,13 @@ export class RegisterCodeService {
       updatedActivatedAt = now;
       // 永久卡不设到期时间，或者设为 100 年后
       if (record.cardType === 'YJ') {
-        updatedExpireTime = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
+        updatedExpireTime = new Date(
+          now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000,
+        );
       } else {
-        updatedExpireTime = new Date(now.getTime() + record.durationMinutes * 60 * 1000);
+        updatedExpireTime = new Date(
+          now.getTime() + record.durationMinutes * 60 * 1000,
+        );
       }
     }
 
@@ -348,16 +385,33 @@ export class RegisterCodeService {
         existingDevice.name = deviceInfo.name || existingDevice.name;
         existingDevice.model = deviceInfo.model || existingDevice.model;
         existingDevice.os = deviceInfo.os || existingDevice.os;
-        existingDevice.osVersion = deviceInfo.osVersion || existingDevice.osVersion;
-        existingDevice.resolution = deviceInfo.resolution || existingDevice.resolution;
-        existingDevice.dpi = deviceInfo.dpi !== undefined ? deviceInfo.dpi : existingDevice.dpi;
-        existingDevice.isRoot = deviceInfo.isRoot !== undefined ? deviceInfo.isRoot : existingDevice.isRoot;
+        existingDevice.osVersion =
+          deviceInfo.osVersion || existingDevice.osVersion;
+        existingDevice.resolution =
+          deviceInfo.resolution || existingDevice.resolution;
+        existingDevice.dpi =
+          deviceInfo.dpi !== undefined ? deviceInfo.dpi : existingDevice.dpi;
+        existingDevice.isRoot =
+          deviceInfo.isRoot !== undefined
+            ? deviceInfo.isRoot
+            : existingDevice.isRoot;
         existingDevice.ip = deviceInfo.ip || existingDevice.ip;
-        existingDevice.battery = deviceInfo.battery !== undefined ? deviceInfo.battery : existingDevice.battery;
-        existingDevice.deviceType = deviceInfo.deviceType || existingDevice.deviceType;
-        existingDevice.frontApp = deviceInfo.frontApp || existingDevice.frontApp;
-        existingDevice.isLocked = deviceInfo.isLocked !== undefined ? deviceInfo.isLocked : existingDevice.isLocked;
-        existingDevice.vpnStatus = deviceInfo.vpnStatus !== undefined ? deviceInfo.vpnStatus : existingDevice.vpnStatus;
+        existingDevice.battery =
+          deviceInfo.battery !== undefined
+            ? deviceInfo.battery
+            : existingDevice.battery;
+        existingDevice.deviceType =
+          deviceInfo.deviceType || existingDevice.deviceType;
+        existingDevice.frontApp =
+          deviceInfo.frontApp || existingDevice.frontApp;
+        existingDevice.isLocked =
+          deviceInfo.isLocked !== undefined
+            ? deviceInfo.isLocked
+            : existingDevice.isLocked;
+        existingDevice.vpnStatus =
+          deviceInfo.vpnStatus !== undefined
+            ? deviceInfo.vpnStatus
+            : existingDevice.vpnStatus;
       }
     } else {
       if (record.usedNum >= record.maxActive) {
@@ -369,7 +423,9 @@ export class RegisterCodeService {
           deviceId,
           registerCode: code,
         });
-        throw new BadRequestException(`绑定设备数已达上限 (${record.maxActive}台)，请在控制台解绑旧设备！`);
+        throw new BadRequestException(
+          `绑定设备数已达上限 (${record.maxActive}台)，请在控制台解绑旧设备！`,
+        );
       }
       devices.push({
         deviceId,
@@ -402,7 +458,7 @@ export class RegisterCodeService {
           data: {
             registerCodeId: record.id,
             deviceId,
-          }
+          },
         });
         await tx.registerCode.update({
           where: { id: record.id },
@@ -474,7 +530,9 @@ export class RegisterCodeService {
     let updateData: Prisma.RegisterCodeUpdateInput = {};
     const nowStr = new Date().toLocaleDateString('zh-CN');
     const adjustmentLog = `[${nowStr}] 调整 ${minutes > 0 ? '+' : ''}${minutes}分钟 (原因: ${reason || '无'})`;
-    const newRemark = record.remark ? `${record.remark} | ${adjustmentLog}` : adjustmentLog;
+    const newRemark = record.remark
+      ? `${record.remark} | ${adjustmentLog}`
+      : adjustmentLog;
 
     if (!record.activatedAt) {
       // 尚未激活，直接调整初始可用时长
@@ -485,8 +543,12 @@ export class RegisterCodeService {
       };
     } else {
       // 已激活，加减截止时间 expireTime
-      const currentExpireTime = record.expireTime ? new Date(record.expireTime) : new Date();
-      const nextExpireTime = new Date(currentExpireTime.getTime() + minutes * 60 * 1000);
+      const currentExpireTime = record.expireTime
+        ? new Date(record.expireTime)
+        : new Date();
+      const nextExpireTime = new Date(
+        currentExpireTime.getTime() + minutes * 60 * 1000,
+      );
 
       // 判断调整后是否过期
       const isExpired = new Date() > nextExpireTime;
@@ -511,7 +573,11 @@ export class RegisterCodeService {
       where: { id },
       data: updateData,
     });
-    await this.recordActionLog(updated.code, 'ADJUST', `微调时长 ${minutes > 0 ? '+' : ''}${minutes}分钟。原因: ${reason || '无'}`);
+    await this.recordActionLog(
+      updated.code,
+      'ADJUST',
+      `微调时长 ${minutes > 0 ? '+' : ''}${minutes}分钟。原因: ${reason || '无'}`,
+    );
     return updated;
   }
 
@@ -543,9 +609,9 @@ export class RegisterCodeService {
       },
     });
     await this.recordActionLog(
-      updated.code, 
-      status === 'disabled' ? 'DISABLE' : 'ENABLE', 
-      status === 'disabled' ? '禁用注册码' : '启用注册码'
+      updated.code,
+      status === 'disabled' ? 'DISABLE' : 'ENABLE',
+      status === 'disabled' ? '禁用注册码' : '启用注册码',
     );
     return updated;
   }
@@ -561,9 +627,10 @@ export class RegisterCodeService {
 
     let devices = [];
     try {
-      devices = typeof record.bindDevices === 'string'
-        ? JSON.parse(record.bindDevices)
-        : (record.bindDevices as any[]) || [];
+      devices =
+        typeof record.bindDevices === 'string'
+          ? JSON.parse(record.bindDevices)
+          : (record.bindDevices as any[]) || [];
     } catch (e) {
       devices = [];
     }
@@ -577,7 +644,7 @@ export class RegisterCodeService {
 
     // 清空物理绑定关联表中的全部设备数据
     await this.prisma.registerCodeDevice.deleteMany({
-      where: { registerCodeId: id }
+      where: { registerCodeId: id },
     });
 
     const updated = await this.prisma.registerCode.update({
@@ -588,7 +655,11 @@ export class RegisterCodeService {
         status: record.activatedAt ? 2 : 1, // 若已激活归位使用中(2)，否则归位未激活(1)
       },
     });
-    await this.recordActionLog(updated.code, 'UNBIND', '强行解绑该卡所有绑定物理设备');
+    await this.recordActionLog(
+      updated.code,
+      'UNBIND',
+      '强行解绑该卡所有绑定物理设备',
+    );
     await this.notificationService.createNotification({
       title: '🔓 授权设备强制解绑',
       content: `已成功强制解绑卡密 [${updated.code}] 下的所有物理设备。`,
@@ -610,9 +681,10 @@ export class RegisterCodeService {
 
     let devices = [];
     try {
-      devices = typeof record.bindDevices === 'string'
-        ? JSON.parse(record.bindDevices)
-        : (record.bindDevices as any[]) || [];
+      devices =
+        typeof record.bindDevices === 'string'
+          ? JSON.parse(record.bindDevices)
+          : (record.bindDevices as any[]) || [];
     } catch (e) {
       devices = [];
     }
@@ -637,23 +709,27 @@ export class RegisterCodeService {
   async findAllBoundDevices() {
     const codes = await this.prisma.registerCode.findMany({
       where: {
-        usedNum: { gt: 0 }
+        usedNum: { gt: 0 },
       },
       select: {
         code: true,
         bindDevices: true,
-        appName: true
-      }
+        appName: true,
+      },
     });
 
-    const deviceMap = new Map<string, BindDeviceItem & { licenseBound: string; appName?: string }>();
+    const deviceMap = new Map<
+      string,
+      BindDeviceItem & { licenseBound: string; appName?: string }
+    >();
 
     for (const item of codes) {
       let devicesList: BindDeviceItem[] = [];
       try {
-        devicesList = typeof item.bindDevices === 'string'
-          ? JSON.parse(item.bindDevices) as BindDeviceItem[]
-          : (item.bindDevices as unknown as BindDeviceItem[]) || [];
+        devicesList =
+          typeof item.bindDevices === 'string'
+            ? (JSON.parse(item.bindDevices) as BindDeviceItem[])
+            : (item.bindDevices as unknown as BindDeviceItem[]) || [];
       } catch (e) {
         devicesList = [];
       }
@@ -661,11 +737,16 @@ export class RegisterCodeService {
       for (const dev of devicesList) {
         if (!dev.deviceId) continue;
         const exists = deviceMap.get(dev.deviceId);
-        if (!exists || (dev.lastActiveAt && exists.lastActiveAt && new Date(dev.lastActiveAt) > new Date(exists.lastActiveAt))) {
+        if (
+          !exists ||
+          (dev.lastActiveAt &&
+            exists.lastActiveAt &&
+            new Date(dev.lastActiveAt) > new Date(exists.lastActiveAt))
+        ) {
           deviceMap.set(dev.deviceId, {
             ...dev,
             licenseBound: item.code,
-            appName: item.appName || '通用'
+            appName: item.appName || '通用',
           });
         }
       }
@@ -673,12 +754,16 @@ export class RegisterCodeService {
 
     const list = Array.from(deviceMap.values()).map((dev) => {
       const isOnline = this.tcpSocketService.isDeviceOnline(dev.deviceId);
-      const onlineIp = isOnline ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId) : '';
-      const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
+      const onlineIp = isOnline
+        ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId)
+        : '';
+      const connection = this.tcpSocketService.getActiveConnection(
+        dev.deviceId,
+      );
       const devInfo = connection?.deviceInfo || dev;
-      
+
       const maskedId = dev.deviceId.slice(0, 8);
-      
+
       return {
         id: dev.deviceId,
         name: devInfo.name || `设备 (${maskedId})`,
@@ -702,10 +787,13 @@ export class RegisterCodeService {
         runningTime: (devInfo as any).runningTime || 0,
         licenseBound: dev.licenseBound,
         appName: dev.appName || '通用',
-        heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
+        heartbeatsCount: isOnline ? connection?.pingCount || 0 : 0,
         activatedAt: dev.activatedAt || null,
         lastActiveAt: dev.lastActiveAt || null,
-        connectedAt: isOnline && connection?.connectedAt ? connection.connectedAt.toISOString() : null,
+        connectedAt:
+          isOnline && connection?.connectedAt
+            ? connection.connectedAt.toISOString()
+            : null,
       };
     });
 
@@ -726,9 +814,10 @@ export class RegisterCodeService {
 
     let bindDevices: BindDeviceItem[] = [];
     try {
-      bindDevices = typeof regCode.bindDevices === 'string'
-        ? JSON.parse(regCode.bindDevices) as BindDeviceItem[]
-        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
+      bindDevices =
+        typeof regCode.bindDevices === 'string'
+          ? (JSON.parse(regCode.bindDevices) as BindDeviceItem[])
+          : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       bindDevices = [];
     }
@@ -736,8 +825,12 @@ export class RegisterCodeService {
     const list = await Promise.all(
       bindDevices.map(async (dev) => {
         const isOnline = this.tcpSocketService.isDeviceOnline(dev.deviceId);
-        const onlineIp = isOnline ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId) : '';
-        const connection = this.tcpSocketService.getActiveConnection(dev.deviceId);
+        const onlineIp = isOnline
+          ? this.tcpSocketService.getDeviceRemoteIp(dev.deviceId)
+          : '';
+        const connection = this.tcpSocketService.getActiveConnection(
+          dev.deviceId,
+        );
         const devInfo = connection?.deviceInfo || dev;
 
         // 对每台设备查询最新的一条 ERROR 级别日志
@@ -765,9 +858,12 @@ export class RegisterCodeService {
           dpi: devInfo.dpi || 0,
           isRoot: devInfo.isRoot === 1,
           battery: devInfo.battery !== undefined ? devInfo.battery : 100,
-          ip: (onlineIp && onlineIp !== 'error' && onlineIp !== 'null')
-            ? onlineIp
-            : (devInfo.ip === 'error' || devInfo.ip === 'null' ? '0.0.0.0' : devInfo.ip || '127.0.0.1'),
+          ip:
+            onlineIp && onlineIp !== 'error' && onlineIp !== 'null'
+              ? onlineIp
+              : devInfo.ip === 'error' || devInfo.ip === 'null'
+                ? '0.0.0.0'
+                : devInfo.ip || '127.0.0.1',
           status: isOnline ? 'online' : 'offline',
           deviceType: devInfo.deviceType || 'unknown',
           frontApp: devInfo.frontApp || 'unknown',
@@ -779,14 +875,19 @@ export class RegisterCodeService {
           currentAccount: (devInfo as any).currentAccount || '未登录',
           runningTime: (devInfo as any).runningTime || 0,
           licenseBound: regCode.code,
-          heartbeatsCount: isOnline ? (connection?.pingCount || 0) : 0,
-          connectedAt: isOnline && connection?.connectedAt ? connection.connectedAt.toISOString() : null,
-          lastError: lastErrorLog ? {
-            message: lastErrorLog.message,
-            timestamp: lastErrorLog.timestamp.toISOString(),
-          } : null,
+          heartbeatsCount: isOnline ? connection?.pingCount || 0 : 0,
+          connectedAt:
+            isOnline && connection?.connectedAt
+              ? connection.connectedAt.toISOString()
+              : null,
+          lastError: lastErrorLog
+            ? {
+                message: lastErrorLog.message,
+                timestamp: lastErrorLog.timestamp.toISOString(),
+              }
+            : null,
         };
-      })
+      }),
     );
 
     return list;
@@ -842,7 +943,12 @@ export class RegisterCodeService {
       },
     });
 
-    await this.recordActionLog(code, 'UPDATE_ALERT', `更新了邮箱报警推送配置: 邮箱 ${alertEmail || '未设置'}`, 'user');
+    await this.recordActionLog(
+      code,
+      'UPDATE_ALERT',
+      `更新了邮箱报警推送配置: 邮箱 ${alertEmail || '未设置'}`,
+      'user',
+    );
 
     return { success: true, message: '警报配置更新成功' };
   }
@@ -881,10 +987,10 @@ export class RegisterCodeService {
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    
+
     // 转化为二维数组，每个单元格为原始数据
     const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
-    
+
     if (rows.length <= 2) {
       throw new BadRequestException('导入的 Excel 数据行为空，请检查文件！');
     }
@@ -901,7 +1007,9 @@ export class RegisterCodeService {
     const verIdx = headers.indexOf('版本类型');
 
     if (codeIdx === -1 || typeIdx === -1 || statusIdx === -1) {
-      throw new BadRequestException('Excel 格式错误，缺失“注册码”、“注册码类型”或“注册码状态”列！');
+      throw new BadRequestException(
+        'Excel 格式错误，缺失“注册码”、“注册码类型”或“注册码状态”列！',
+      );
     }
 
     const importedCodes = [];
@@ -923,7 +1031,8 @@ export class RegisterCodeService {
       const rawVer = verIdx !== -1 ? row[verIdx]?.toString().trim() : '';
 
       // 字段规则映射
-      const appName = (rawAppName === '通用型版本' || !rawAppName) ? null : rawAppName;
+      const appName =
+        rawAppName === '通用型版本' || !rawAppName ? null : rawAppName;
 
       let cardType = 'YK';
       let durationMinutes = 43200;
@@ -976,11 +1085,15 @@ export class RegisterCodeService {
     }
 
     if (importedCodes.length === 0) {
-      return { success: true, message: '未在大表里检索到任何合规的数据！', count: 0 };
+      return {
+        success: true,
+        message: '未在大表里检索到任何合规的数据！',
+        count: 0,
+      };
     }
 
     const allImportedCodes = importedCodes.map((item) => item.code);
-    
+
     // 1. 批量查找数据库中已存在的记录
     const existingRecords = await this.prisma.registerCode.findMany({
       where: {
@@ -1031,8 +1144,8 @@ export class RegisterCodeService {
               remark: `${item.remark} [覆盖导入]`,
               source: 'IMPORT',
             },
-          })
-        )
+          }),
+        ),
       );
       updatedCount = toUpdate.length;
     }
@@ -1040,15 +1153,19 @@ export class RegisterCodeService {
     if (toCreate.length > 0) {
       await Promise.all(
         toCreate.map((item) =>
-          this.recordActionLog(item.code, 'GENERATE', '老系统 Excel 导入新建')
-        )
+          this.recordActionLog(item.code, 'GENERATE', '老系统 Excel 导入新建'),
+        ),
       );
     }
     if (toUpdate.length > 0) {
       await Promise.all(
         toUpdate.map((item) =>
-          this.recordActionLog(item.code, 'ADJUST', '老系统 Excel 导入并覆盖同步')
-        )
+          this.recordActionLog(
+            item.code,
+            'ADJUST',
+            '老系统 Excel 导入并覆盖同步',
+          ),
+        ),
       );
     }
 
@@ -1063,7 +1180,12 @@ export class RegisterCodeService {
   /**
    * 记录卡密操作变更日志
    */
-  async recordActionLog(code: string, actionType: string, description: string, operator: string = 'admin') {
+  async recordActionLog(
+    code: string,
+    actionType: string,
+    description: string,
+    operator: string = 'admin',
+  ) {
     try {
       await this.prisma.registerCodeLog.create({
         data: {
@@ -1081,7 +1203,11 @@ export class RegisterCodeService {
   /**
    * 分页查询卡密操作变更日志
    */
-  async findActionLogs(page: number, limit: number, options?: { code?: string; actionType?: string }) {
+  async findActionLogs(
+    page: number,
+    limit: number,
+    options?: { code?: string; actionType?: string },
+  ) {
     const skip = (page - 1) * limit;
     const where: any = {};
     if (options?.code) {
@@ -1121,7 +1247,7 @@ export class RegisterCodeService {
     }
 
     const records = await this.prisma.registerCode.findMany({
-      where: { id: { in: ids } }
+      where: { id: { in: ids } },
     });
 
     if (records.length === 0) {
@@ -1129,7 +1255,8 @@ export class RegisterCodeService {
     }
 
     const action = status === 'disabled' ? 'DISABLE' : 'ENABLE';
-    const actionDesc = status === 'disabled' ? '批量禁用注册码' : '批量启用注册码';
+    const actionDesc =
+      status === 'disabled' ? '批量禁用注册码' : '批量启用注册码';
 
     const updates = records.map((record) => {
       let numericStatus = 1;
@@ -1154,8 +1281,8 @@ export class RegisterCodeService {
     // 记录审计日志
     await Promise.all(
       records.map((record) =>
-        this.recordActionLog(record.code, action, actionDesc)
-      )
+        this.recordActionLog(record.code, action, actionDesc),
+      ),
     );
 
     return { success: true, count: records.length };
@@ -1170,14 +1297,18 @@ export class RegisterCodeService {
     }
 
     const records = await this.prisma.registerCode.findMany({
-      where: { id: { in: ids } }
+      where: { id: { in: ids } },
     });
 
     // 过滤掉永久卡 (YJ)
-    const validRecords = records.filter(r => r.cardType !== 'YJ');
+    const validRecords = records.filter((r) => r.cardType !== 'YJ');
 
     if (validRecords.length === 0) {
-      return { success: true, count: 0, message: '选择的激活码中没有可调整时间的非永久卡。' };
+      return {
+        success: true,
+        count: 0,
+        message: '选择的激活码中没有可调整时间的非永久卡。',
+      };
     }
 
     const nowStr = new Date().toLocaleDateString('zh-CN');
@@ -1185,7 +1316,9 @@ export class RegisterCodeService {
 
     const updates = validRecords.map((record) => {
       let updateData: Prisma.RegisterCodeUpdateInput = {};
-      const newRemark = record.remark ? `${record.remark} | ${adjustmentLog}` : adjustmentLog;
+      const newRemark = record.remark
+        ? `${record.remark} | ${adjustmentLog}`
+        : adjustmentLog;
 
       if (!record.activatedAt) {
         // 尚未激活，直接调整初始可用时长
@@ -1196,8 +1329,12 @@ export class RegisterCodeService {
         };
       } else {
         // 已激活，加减截止时间 expireTime
-        const currentExpireTime = record.expireTime ? new Date(record.expireTime) : new Date();
-        const nextExpireTime = new Date(currentExpireTime.getTime() + minutes * 60 * 1000);
+        const currentExpireTime = record.expireTime
+          ? new Date(record.expireTime)
+          : new Date();
+        const nextExpireTime = new Date(
+          currentExpireTime.getTime() + minutes * 60 * 1000,
+        );
 
         // 判断调整后是否过期
         const isExpired = new Date() > nextExpireTime;
@@ -1229,8 +1366,12 @@ export class RegisterCodeService {
     // 记录审计日志
     await Promise.all(
       validRecords.map((record) =>
-        this.recordActionLog(record.code, 'ADJUST', `批量微调时长 ${minutes > 0 ? '+' : ''}${minutes}分钟。原因: ${reason || '无'}`)
-      )
+        this.recordActionLog(
+          record.code,
+          'ADJUST',
+          `批量微调时长 ${minutes > 0 ? '+' : ''}${minutes}分钟。原因: ${reason || '无'}`,
+        ),
+      ),
     );
 
     return { success: true, count: validRecords.length };
@@ -1245,7 +1386,7 @@ export class RegisterCodeService {
     }
 
     const records = await this.prisma.registerCode.findMany({
-      where: { id: { in: ids } }
+      where: { id: { in: ids } },
     });
 
     if (records.length === 0) {
@@ -1257,9 +1398,10 @@ export class RegisterCodeService {
     for (const record of records) {
       let devices = [];
       try {
-        devices = typeof record.bindDevices === 'string'
-          ? JSON.parse(record.bindDevices)
-          : (record.bindDevices as any[]) || [];
+        devices =
+          typeof record.bindDevices === 'string'
+            ? JSON.parse(record.bindDevices)
+            : (record.bindDevices as any[]) || [];
       } catch (e) {
         devices = [];
       }
@@ -1278,18 +1420,18 @@ export class RegisterCodeService {
     // 事务删除关联表与主表
     await this.prisma.$transaction([
       this.prisma.registerCodeDevice.deleteMany({
-        where: { registerCodeId: { in: ids } }
+        where: { registerCodeId: { in: ids } },
       }),
       this.prisma.registerCode.deleteMany({
-        where: { id: { in: ids } }
-      })
+        where: { id: { in: ids } },
+      }),
     ]);
 
     // 记录审计日志
     await Promise.all(
       records.map((record) =>
-        this.recordActionLog(record.code, 'DELETE', '批量物理注销作废该卡密')
-      )
+        this.recordActionLog(record.code, 'DELETE', '批量物理注销作废该卡密'),
+      ),
     );
 
     return { success: true, count: records.length };
@@ -1317,7 +1459,7 @@ export class RegisterCodeService {
     // 1. 查找注册码
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code },
-      include: { boundDevices: true }
+      include: { boundDevices: true },
     });
 
     if (!regCode) {
@@ -1335,25 +1477,32 @@ export class RegisterCodeService {
       if (regCode.status !== 3) {
         await this.prisma.registerCode.update({
           where: { id: regCode.id },
-          data: { status: 3 }
+          data: { status: 3 },
         });
       }
       return { success: false, message: '该注册码已过期失效' };
     }
 
     // 3. 检查当前设备是否已经绑定过该卡密
-    const isAlreadyBound = regCode.boundDevices.some(d => d.deviceId === deviceId);
+    const isAlreadyBound = regCode.boundDevices.some(
+      (d) => d.deviceId === deviceId,
+    );
     if (isAlreadyBound) {
       return {
         success: true,
         message: '设备验证成功',
-        expireTime: regCode.expireTime ? regCode.expireTime.toISOString() : null
+        expireTime: regCode.expireTime
+          ? regCode.expireTime.toISOString()
+          : null,
       };
     }
 
     // 4. 新设备尝试绑定，检查额度
     if (regCode.usedNum >= regCode.maxActive) {
-      return { success: false, message: `绑定设备数已达上限 (${regCode.maxActive}台)，请在控制台解绑旧设备` };
+      return {
+        success: false,
+        message: `绑定设备数已达上限 (${regCode.maxActive}台)，请在控制台解绑旧设备`,
+      };
     }
 
     // 5. 进行激活逻辑计算 (如果是首次激活)
@@ -1363,23 +1512,28 @@ export class RegisterCodeService {
     if (!regCode.activatedAt) {
       updatedActivatedAt = now;
       if (regCode.cardType === 'YJ') {
-        updatedExpireTime = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000); // 100 年
+        updatedExpireTime = new Date(
+          now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000,
+        ); // 100 年
       } else {
-        updatedExpireTime = new Date(now.getTime() + regCode.durationMinutes * 60 * 1000);
+        updatedExpireTime = new Date(
+          now.getTime() + regCode.durationMinutes * 60 * 1000,
+        );
       }
     }
 
     // 处理旧的 bindDevices Json 列，兼容后台显示
     let devicesList: BindDeviceItem[] = [];
     try {
-      devicesList = typeof regCode.bindDevices === 'string'
-        ? JSON.parse(regCode.bindDevices)
-        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
+      devicesList =
+        typeof regCode.bindDevices === 'string'
+          ? JSON.parse(regCode.bindDevices)
+          : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       devicesList = [];
     }
 
-    if (!devicesList.some(d => d.deviceId === deviceId)) {
+    if (!devicesList.some((d) => d.deviceId === deviceId)) {
       devicesList.push({
         deviceId,
         activatedAt: now.toISOString(),
@@ -1396,8 +1550,8 @@ export class RegisterCodeService {
       await tx.registerCodeDevice.create({
         data: {
           registerCodeId: regCode.id,
-          deviceId
-        }
+          deviceId,
+        },
       });
 
       // 更新卡密主表信息 (包括旧 of bindDevices 字段以维持兼容性)
@@ -1408,27 +1562,42 @@ export class RegisterCodeService {
           expireTime: updatedExpireTime,
           usedNum: nextUsedNum,
           status: nextStatus,
-          bindDevices: devicesList as unknown as Prisma.InputJsonValue
-        }
+          bindDevices: devicesList as unknown as Prisma.InputJsonValue,
+        },
       });
     });
 
     // 写入操作审计日志
-    await this.recordActionLog(regCode.code, 'ADJUST', `设备 [${deviceId}] 进行了绑定认证 (当前绑定数: ${nextUsedNum}/${regCode.maxActive})`);
+    await this.recordActionLog(
+      regCode.code,
+      'ADJUST',
+      `设备 [${deviceId}] 进行了绑定认证 (当前绑定数: ${nextUsedNum}/${regCode.maxActive})`,
+    );
 
     return {
       success: true,
       message: '新设备绑定并验证成功',
-      expireTime: updatedExpireTime ? updatedExpireTime.toISOString() : null
+      expireTime: updatedExpireTime ? updatedExpireTime.toISOString() : null,
     };
   }
 
   /**
    * 解绑单个绑定的物理设备
    */
-  async unbindSingleDevice(code: string, deviceId: string, operator: string = 'user') {
-    console.log('[DEBUG Unbind] input code:', JSON.stringify(code), 'deviceId:', deviceId, 'operator:', operator);
-    
+  async unbindSingleDevice(
+    code: string,
+    deviceId: string,
+    operator: string = 'user',
+  ) {
+    console.log(
+      '[DEBUG Unbind] input code:',
+      JSON.stringify(code),
+      'deviceId:',
+      deviceId,
+      'operator:',
+      operator,
+    );
+
     // 1. 尝试直接查询
     let regCode = await this.prisma.registerCode.findUnique({
       where: { code },
@@ -1452,14 +1621,15 @@ export class RegisterCodeService {
 
     let devices: BindDeviceItem[] = [];
     try {
-      devices = typeof activeRegCode.bindDevices === 'string'
-        ? JSON.parse(activeRegCode.bindDevices)
-        : (activeRegCode.bindDevices as unknown as BindDeviceItem[]) || [];
+      devices =
+        typeof activeRegCode.bindDevices === 'string'
+          ? JSON.parse(activeRegCode.bindDevices)
+          : (activeRegCode.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       devices = [];
     }
 
-    const devIndex = devices.findIndex(d => d.deviceId === deviceId);
+    const devIndex = devices.findIndex((d) => d.deviceId === deviceId);
     if (devIndex === -1) {
       throw new BadRequestException('该设备未绑定至此注册码！');
     }
@@ -1467,13 +1637,18 @@ export class RegisterCodeService {
     const targetDev = devices[devIndex];
     devices.splice(devIndex, 1);
 
-    const boundAt = targetDev.activatedAt ? new Date(targetDev.activatedAt) : new Date();
+    const boundAt = targetDev.activatedAt
+      ? new Date(targetDev.activatedAt)
+      : new Date();
     const lastIp = targetDev.ip || '127.0.0.1';
     const deviceName = targetDev.name || `设备 (${deviceId.slice(0, 8)})`;
 
     const updatedUsedNum = devices.length;
     let nextStatus = activeRegCode.status;
-    if (activeRegCode.expireTime && new Date() > new Date(activeRegCode.expireTime)) {
+    if (
+      activeRegCode.expireTime &&
+      new Date() > new Date(activeRegCode.expireTime)
+    ) {
       nextStatus = 3;
     } else if (activeRegCode.status !== 0) {
       nextStatus = updatedUsedNum >= activeRegCode.maxActive ? 4 : 2;
@@ -1528,7 +1703,13 @@ export class RegisterCodeService {
   /**
    * 将设备加入卡密黑名单
    */
-  async addDeviceToBlacklist(code: string, deviceId: string, deviceName?: string, reason?: string, operator: string = 'user') {
+  async addDeviceToBlacklist(
+    code: string,
+    deviceId: string,
+    deviceName?: string,
+    reason?: string,
+    operator: string = 'user',
+  ) {
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code },
     });
@@ -1540,14 +1721,15 @@ export class RegisterCodeService {
     let finalDeviceName = deviceName;
     let devices: BindDeviceItem[] = [];
     try {
-      devices = typeof regCode.bindDevices === 'string'
-        ? JSON.parse(regCode.bindDevices)
-        : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
+      devices =
+        typeof regCode.bindDevices === 'string'
+          ? JSON.parse(regCode.bindDevices)
+          : (regCode.bindDevices as unknown as BindDeviceItem[]) || [];
     } catch (e) {
       devices = [];
     }
 
-    const boundDev = devices.find(d => d.deviceId === deviceId);
+    const boundDev = devices.find((d) => d.deviceId === deviceId);
     if (boundDev && !finalDeviceName) {
       finalDeviceName = boundDev.name || `设备 (${deviceId.slice(0, 8)})`;
     }
@@ -1573,7 +1755,7 @@ export class RegisterCodeService {
     });
 
     // 若当前设备绑定于此激活码，强制解绑
-    const isBound = devices.some(d => d.deviceId === deviceId);
+    const isBound = devices.some((d) => d.deviceId === deviceId);
     if (isBound) {
       await this.unbindSingleDevice(code, deviceId, operator);
     } else {
@@ -1593,7 +1775,11 @@ export class RegisterCodeService {
   /**
    * 解除设备黑名单
    */
-  async removeDeviceFromBlacklist(code: string, deviceId: string, operator: string = 'user') {
+  async removeDeviceFromBlacklist(
+    code: string,
+    deviceId: string,
+    operator: string = 'user',
+  ) {
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code },
     });
@@ -1696,5 +1882,3 @@ export class RegisterCodeService {
     });
   }
 }
-
-

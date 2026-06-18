@@ -9,9 +9,12 @@ export class DebugService {
    * 1. 快速创建用于测试的临时卡密 (以 XB-DEBUG- 开头)
    */
   async createTempCode() {
-    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const randomSuffix = Math.random()
+      .toString(36)
+      .substring(2, 8)
+      .toUpperCase();
     const testCode = `XB-DEBUG-${randomSuffix}`;
-    
+
     const record = await this.prisma.registerCode.create({
       data: {
         code: testCode,
@@ -20,14 +23,14 @@ export class DebugService {
         maxActive: 1,
         status: 1, // 正常可用
         bindDevices: '[]',
-        allowedApis: '[]'
-      }
+        allowedApis: '[]',
+      },
     });
 
     return {
       success: true,
       message: `临时测试卡密 ${testCode} 创建成功！`,
-      data: record
+      data: record,
     };
   }
 

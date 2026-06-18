@@ -17,7 +17,14 @@ export class MailService {
     const settings = await this.prisma.systemSetting.findMany({
       where: {
         key: {
-          in: ['mail_enabled', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from'],
+          in: [
+            'mail_enabled',
+            'smtp_host',
+            'smtp_port',
+            'smtp_user',
+            'smtp_pass',
+            'smtp_from',
+          ],
         },
       },
     });
@@ -38,9 +45,9 @@ export class MailService {
     if (!mailEnabled || !smtpHost || !smtpPort || !smtpUser || !smtpPass) {
       this.logger.warn(
         `[邮件服务未启用/配置缺失] 本地测试模式验证码如下:\n` +
-        `-----------------------------------------\n` +
-        `[验证码] 邮箱: ${email} | 验证码: ${code}\n` +
-        `-----------------------------------------`
+          `-----------------------------------------\n` +
+          `[验证码] 邮箱: ${email} | 验证码: ${code}\n` +
+          `-----------------------------------------`,
       );
       return false;
     }
@@ -80,9 +87,9 @@ export class MailService {
       this.logger.error(`[SMTP] 邮件发送异常，降级输出至控制台`, err);
       this.logger.warn(
         `[开发测试模式兜底] 验证码如下:\n` +
-        `-----------------------------------------\n` +
-        `[验证码] 邮箱: ${email} | 验证码: ${code}\n` +
-        `-----------------------------------------`
+          `-----------------------------------------\n` +
+          `[验证码] 邮箱: ${email} | 验证码: ${code}\n` +
+          `-----------------------------------------`,
       );
       return false;
     }

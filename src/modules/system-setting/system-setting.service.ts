@@ -32,7 +32,8 @@ export class SystemSettingService {
     ];
     defaultKeys.forEach((key) => {
       if (settings[key] === undefined) {
-        settings[key] = (key === 'mail_enabled' || key === 'alert_mail_enabled') ? 'false' : '';
+        settings[key] =
+          key === 'mail_enabled' || key === 'alert_mail_enabled' ? 'false' : '';
       }
     });
 

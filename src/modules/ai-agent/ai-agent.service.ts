@@ -30,25 +30,36 @@ export class AiAgentService {
     if (modelLower.startsWith('qwen')) {
       // 切换为阿里通义千问配置
       apiKey = process.env.DASHSCOPE_API_KEY;
-      baseURL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+      baseURL =
+        process.env.DASHSCOPE_BASE_URL ||
+        'https://dashscope.aliyuncs.com/compatible-mode/v1';
       this.logger.log(`[AI Factory] 路由至阿里通义千问大模型: ${model}`);
-    } else if (modelLower.startsWith('doubao') || modelLower.startsWith('ep-')) {
+    } else if (
+      modelLower.startsWith('doubao') ||
+      modelLower.startsWith('ep-')
+    ) {
       // 切换为火山引擎豆包大模型配置
       apiKey = process.env.DOUBAO_API_KEY;
-      baseURL = process.env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
-      
+      baseURL =
+        process.env.DOUBAO_BASE_URL ||
+        'https://ark.cn-beijing.volces.com/api/v3';
+
       // 火山引擎必须传推理接入点 ID。
       // 如果前端传入类似 "doubao-pro" 标识，自动映射至环境变量配置的 Endpoint
       if (modelLower.startsWith('doubao')) {
         resolvedModel = process.env.DOUBAO_MODEL_ENDPOINT || model;
       }
-      this.logger.log(`[AI Factory] 路由至火山引擎豆包大模型: ${model} -> 物理模型接入点: ${resolvedModel}`);
+      this.logger.log(
+        `[AI Factory] 路由至火山引擎豆包大模型: ${model} -> 物理模型接入点: ${resolvedModel}`,
+      );
     } else {
       this.logger.log(`[AI Factory] 路由至 DeepSeek 官方大模型: ${model}`);
     }
 
     if (!apiKey) {
-      throw new Error(`系统尚未配置模型厂商的 API Key，请先在 backend/.env 中配置对应环境变量！`);
+      throw new Error(
+        `系统尚未配置模型厂商的 API Key，请先在 backend/.env 中配置对应环境变量！`,
+      );
     }
 
     const openai = new OpenAI({
@@ -79,12 +90,19 @@ export class AiAgentService {
               type: 'function',
               function: {
                 name: 'reboot_device',
-                description: '强制重启或重置指定 MAC 地址的物理机器人设备。当设备过热或死机时使用。',
+                description:
+                  '强制重启或重置指定 MAC 地址的物理机器人设备。当设备过热或死机时使用。',
                 parameters: {
                   type: 'object',
                   properties: {
-                    mac: { type: 'string', description: '设备的 MAC 地址，例如 08:A3:E2:0F:91:BD' },
-                    reason: { type: 'string', description: '重启的物理触发原因说明' },
+                    mac: {
+                      type: 'string',
+                      description: '设备的 MAC 地址，例如 08:A3:E2:0F:91:BD',
+                    },
+                    reason: {
+                      type: 'string',
+                      description: '重启的物理触发原因说明',
+                    },
                   },
                   required: ['mac'],
                 },
@@ -94,16 +112,22 @@ export class AiAgentService {
 
           // 格式化输入消息以符合 OpenAI 官方 API 格式
           const apiMessages = messages.map((m) => ({
-            role: (m.role || m.sender || 'user') as 'user' | 'assistant' | 'system',
+            role: (m.role || m.sender || 'user') as
+              | 'user'
+              | 'assistant'
+              | 'system',
             content: m.content || '',
           }));
 
-          this.logger.log(`[LLM Call] 发起流式推理. Model: ${resolvedModel}, Temp: ${temperature}`);
+          this.logger.log(
+            `[LLM Call] 发起流式推理. Model: ${resolvedModel}, Temp: ${temperature}`,
+          );
 
           // 3. 调用 API (开启 stream: true)
           const stream = await openai.chat.completions.create({
             model: resolvedModel,
-            messages: apiMessages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+            messages:
+              apiMessages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
             temperature: temperature,
             tools: tools,
             tool_choice: 'auto',
@@ -117,7 +141,9 @@ export class AiAgentService {
             if (!delta) continue;
 
             // 情况 A：处理思考链 (DeepSeek-R1 专属字段 reasoning_content)
-            const reasoning = (delta as unknown as { reasoning_content?: string }).reasoning_content;
+            const reasoning = (
+              delta as unknown as { reasoning_content?: string }
+            ).reasoning_content;
             if (reasoning) {
               subscriber.next({ event: 'think', data: reasoning });
               continue;
@@ -150,7 +176,9 @@ export class AiAgentService {
           if (activeToolCalls.length > 0) {
             for (const toolCall of activeToolCalls) {
               const args = JSON.parse(toolCall.arguments || '{}');
-              this.logger.log(`[Agent Tool] 判定触发本地函数: ${toolCall.name}, 参数: ${toolCall.arguments}`);
+              this.logger.log(
+                `[Agent Tool] 判定触发本地函数: ${toolCall.name}, 参数: ${toolCall.arguments}`,
+              );
 
               // 推送步骤开始通知到前端
               subscriber.next({
@@ -165,7 +193,10 @@ export class AiAgentService {
               // 物理执行本地方法
               let toolResult = '';
               if (toolCall.name === 'reboot_device') {
-                toolResult = await this.executeRebootDevice(args.mac, args.reason);
+                toolResult = await this.executeRebootDevice(
+                  args.mac,
+                  args.reason,
+                );
               } else {
                 toolResult = `未找到名为 ${toolCall.name} 的内置函数执行机制。`;
               }
@@ -181,7 +212,9 @@ export class AiAgentService {
               });
 
               // 5. 将工具的物理执行结果回填大模型，生成第二轮的总结回答
-              this.logger.log(`[LLM Call] 工具执行完毕，回填结果生成第二轮最终总结。`);
+              this.logger.log(
+                `[LLM Call] 工具执行完毕，回填结果生成第二轮最终总结。`,
+              );
               const finalResponse = await openai.chat.completions.create({
                 model: resolvedModel,
                 messages: [
@@ -203,7 +236,9 @@ export class AiAgentService {
                 ],
               });
 
-              const finalAnswer = finalResponse.choices[0]?.message?.content || '物理控制指令已在后端物理链路完成！';
+              const finalAnswer =
+                finalResponse.choices[0]?.message?.content ||
+                '物理控制指令已在后端物理链路完成！';
               subscriber.next({ event: 'message', data: finalAnswer });
             }
           }
@@ -213,7 +248,10 @@ export class AiAgentService {
           subscriber.complete();
         } catch (error) {
           this.logger.error('大模型流式调用遭遇致命异常', error);
-          subscriber.next({ event: 'error', data: error.message || '内部服务异常' });
+          subscriber.next({
+            event: 'error',
+            data: error.message || '内部服务异常',
+          });
           subscriber.error(error);
         }
       })();
@@ -223,12 +261,17 @@ export class AiAgentService {
   /**
    * 模拟物理重启设备方法
    */
-  private async executeRebootDevice(mac: string, reason: string): Promise<string> {
-    this.logger.warn(`[Tool Execute] 触发物理重启命令. MAC: ${mac}, 原因: ${reason || '未提供原因'}`);
-    
+  private async executeRebootDevice(
+    mac: string,
+    reason: string,
+  ): Promise<string> {
+    this.logger.warn(
+      `[Tool Execute] 触发物理重启命令. MAC: ${mac}, 原因: ${reason || '未提供原因'}`,
+    );
+
     // 延迟 1 秒模拟真实物理设备交互
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    
+
     return `设备 [ ${mac} ] 硬件重启指令已成功投递至 MQTT 控制 Topic。目前设备状态：已离线，预计于 15 秒后完成固件热重载并上报最新心跳。`;
   }
 }
