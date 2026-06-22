@@ -645,4 +645,55 @@ export class RegisterCodeController {
     }
     return this.registerCodeService.getDeviceAccountHistory(code, deviceId);
   }
+
+  /**
+   * 11. 手动/自动下发换号切号指令 (供大屏/管理员调用)
+   */
+  @Patch('my-devices/switch-account')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '强制特定在线设备换号',
+    description: '下发 switch_account 命令强制该设备优雅退登并登录下一个号。',
+  })
+  async switchAccountDevice(
+    @Body()
+    body: {
+      code: string;
+      deviceId: string;
+      operator?: string;
+      reason?: string;
+    },
+  ) {
+    if (!body.code || !body.deviceId) {
+      throw new BadRequestException('参数 code 和 deviceId 不能为空');
+    }
+    return this.registerCodeService.switchAccountDevice(
+      body.code,
+      body.deviceId,
+      body.operator || 'user',
+      body.reason,
+    );
+  }
+
+  /**
+   * 12. 客户端脚本登录前，主动防共享查重检测
+   */
+  @Get('my-devices/check-account')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '主动查重检测账号是否被占用',
+    description: '供客户端脚本在实际执行游戏登录前校验其挑选的账号状态。',
+  })
+  async checkAccountStatus(
+    @Query('code') code: string,
+    @Query('deviceId') deviceId: string,
+    @Query('account') account: string,
+  ) {
+    if (!code || !deviceId || !account) {
+      throw new BadRequestException(
+        '参数 code, deviceId 和 account 均不能为空',
+      );
+    }
+    return this.registerCodeService.checkAccountStatus(code, deviceId, account);
+  }
 }

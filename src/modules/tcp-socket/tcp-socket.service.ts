@@ -28,6 +28,7 @@ interface ClientConnection {
   pingCount?: number;
   isExiting?: boolean; // 标记是否优雅退出 (OnScriptExit)
   connectedAt?: Date; // 物理连接握手时间
+  lastActiveTime?: Date; // 最近一次心跳上报或活跃时间
   lastTrackedAccount?: string; // 内存中记录的上一次跟踪的运行账号
   deviceInfo?: {
     name: string;
@@ -459,6 +460,7 @@ export class TcpSocketService
           pingCount: 0,
           deviceInfo,
           connectedAt: new Date(),
+          lastActiveTime: new Date(),
         });
 
         // 重新连回成功，立即清除并取消 pending 的意外下线延迟告警评估
@@ -532,6 +534,44 @@ export class TcpSocketService
     }
 
     const connection = this.activeConnections.get(deviceId)!;
+    connection.lastActiveTime = new Date();
+
+    // 1.5 客户端登录前，主动防重复查重校验
+    if (action === 'check_account_status') {
+      const checkAcc = String(data.currentAccount || '').trim();
+      if (!checkAcc || checkAcc === '未登录') {
+        socket.write(
+          JSON.stringify({
+            status: 'ok',
+            action: 'check_account_status',
+            account: checkAcc,
+            isOccupied: false,
+          }) + '\n',
+        );
+        return;
+      }
+
+      let isOccupied = false;
+      for (const [otherDeviceId, otherConn] of this.activeConnections.entries()) {
+        if (otherDeviceId !== deviceId && otherConn.code === connection.code) {
+          const otherAccount = otherConn.deviceInfo?.currentAccount;
+          if (otherAccount && otherAccount.trim() === checkAcc) {
+            isOccupied = true;
+            break;
+          }
+        }
+      }
+
+      socket.write(
+        JSON.stringify({
+          status: 'ok',
+          action: 'check_account_status',
+          account: checkAcc,
+          isOccupied: isOccupied,
+        }) + '\n',
+      );
+      return;
+    }
 
     // 2. 心跳机制
     if (action === 'ping') {
@@ -630,6 +670,13 @@ export class TcpSocketService
         }
 
         connection.deviceInfo.currentAccount = newAccount;
+
+        // 【新增】：被动冲突防御检查
+        if (newAccount !== '未登录' && newAccount !== '') {
+          this.checkAccountSharingConflict(connection, newAccount).catch((err) => {
+            this.logger.error(`执行被动账号防多开冲突评估出错:`, err);
+          });
+        }
       }
 
       socket.write(JSON.stringify({ status: 'ok', message: 'pong' }) + '\n');
@@ -1532,6 +1579,127 @@ export class TcpSocketService
       }
     } catch (err) {
       this.logger.error(`handleAccountLogout 数据库写入错误:`, err);
+    }
+  }
+
+  /**
+   * 强制特定设备下线切号
+   */
+  public forceSwitchAccountDevice(deviceId: string, reason: string) {
+    const connection = this.activeConnections.get(deviceId);
+    if (connection) {
+      this.logger.log(`向设备下发强制换号指令: ${deviceId}, 原因: ${reason}`);
+
+      // 临时标记设备处于换号切换中状态
+      if (connection.deviceInfo) {
+        connection.deviceInfo.isSwitchingAccount = 1;
+        connection.deviceInfo.currentTask = '正在切退当前账号...';
+      }
+
+      // 广播设备状态为切号中
+      this.deviceState$.next({
+        type: 'device_status',
+        code: connection.code,
+        deviceId,
+        payload: {
+          ...connection.deviceInfo,
+          status: 'online',
+          isSwitchingAccount: true,
+          currentTask: '正在切退当前账号...',
+        },
+      });
+
+      connection.socket.write(
+        JSON.stringify({
+          cmd: 'switch_account',
+          message: reason,
+        }) + '\n',
+      );
+    }
+  }
+
+  /**
+   * 被动防御检测：同一卡密共享时，禁止登录相同的账号
+   */
+  private async checkAccountSharingConflict(
+    connection: ClientConnection,
+    account: string,
+  ) {
+    try {
+      // 1. 先查询这个激活码是否开启了防共享排重校验
+      const regCode = await this.prisma.registerCode.findUnique({
+        where: { code: connection.code },
+      });
+
+      if (!regCode) return;
+
+      const codeRecord = regCode as Record<string, any>;
+      const config = (codeRecord.alertConfig as Record<string, any>) || {};
+      if (!config.preventDuplicateAccount) {
+        return; // 未开启防御，直接跳过
+      }
+
+      // 2. 检索当前内存中相同 code 下的所有活跃连接
+      for (const [
+        otherDeviceId,
+        otherConn,
+      ] of this.activeConnections.entries()) {
+        if (
+          otherDeviceId !== connection.deviceId &&
+          otherConn.code === connection.code
+        ) {
+          const otherAccount = otherConn.deviceInfo?.currentAccount;
+          if (otherAccount && otherAccount.trim() === account.trim()) {
+            // 检查对方设备的心跳是否已经过期（超过3分钟未发心跳）
+            const lastActive = otherConn.lastActiveTime;
+            const now = new Date();
+            const timeoutMs = 3 * 60 * 1000;
+            if (lastActive && now.getTime() - lastActive.getTime() > timeoutMs) {
+              this.logger.log(
+                `[防重复多开] 检测到设备 [${otherDeviceId}] 的账号 [${account}] 虽然占线，但心跳已过期，不引发冲突，强制回收并继续`,
+              );
+              try {
+                this.forceKickDevice(otherDeviceId);
+              } catch (kickErr) {}
+              continue;
+            }
+
+            // 发现冲突！有两个设备登录了同一个账号。
+            this.logger.warn(
+              `[防重复多开] 检测到冲突！激活码 [${connection.code}] 下的设备 [${connection.deviceId}] 和设备 [${otherDeviceId}] 同时登录了账号 [${account}]`,
+            );
+
+            // 根据配置决定动作
+            const action = config.duplicateAction || 'kick_new'; // 默认 kick_new (防御踢新)
+
+            if (action === 'kick_new') {
+              // 踢新号：让当前刚刚上报这个账号的设备换号
+              this.logger.log(
+                `[防重复多开] 策略为踢新：强制新登录设备 [${connection.deviceId}] 换号下线`,
+              );
+              connection.socket.write(
+                JSON.stringify({
+                  cmd: 'switch_account',
+                  message: `账号 [${account}] 已在其他设备运行，您已被防御换号，请使用下一个账号`,
+                }) + '\n',
+              );
+            } else if (action === 'kick_old') {
+              // 踢老号：让之前已经登录这个账号的老设备换号
+              this.logger.log(
+                `[防重复多开] 策略为踢老：强制原登录设备 [${otherDeviceId}] 换号下线`,
+              );
+              otherConn.socket.write(
+                JSON.stringify({
+                  cmd: 'switch_account',
+                  message: `账号 [${account}] 已在其他设备登录，您已被强制切号`,
+                }) + '\n',
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`执行防多开排重检查出错:`, err);
     }
   }
 }

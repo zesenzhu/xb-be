@@ -1582,6 +1582,101 @@ export class RegisterCodeService {
   }
 
   /**
+   * 强制切换设备的登录账号 (Web 大屏下发)
+   */
+  async switchAccountDevice(
+    code: string,
+    deviceId: string,
+    operator: string = 'user',
+    reason?: string,
+  ) {
+    let regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode && code) {
+      const cleanCode = code.trim().toUpperCase();
+      regCode = await this.prisma.registerCode.findUnique({
+        where: { code: cleanCode },
+      });
+    }
+
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    const isOnline = this.tcpSocketService.isDeviceOnline(deviceId);
+    if (!isOnline) {
+      throw new BadRequestException('该设备当前不在线，无法下发换号指令！');
+    }
+
+    const activeMsg = reason || '用户在网页端手动执行强制换号';
+    this.tcpSocketService.forceSwitchAccountDevice(deviceId, activeMsg);
+
+    await this.recordActionLog(
+      regCode.code,
+      'SWITCH_ACCOUNT',
+      `设备 [${deviceId}] 被执行强制换号指令: ${activeMsg}`,
+      operator,
+    );
+
+    return { success: true, message: '强制换号指令已成功下发至客户端！' };
+  }
+
+  /**
+   * 主动查询账号是否已被其他设备登录 (查重)
+   */
+  async checkAccountStatus(code: string, deviceId: string, account: string) {
+    let regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode && code) {
+      const cleanCode = code.trim().toUpperCase();
+      regCode = await this.prisma.registerCode.findUnique({
+        where: { code: cleanCode },
+      });
+    }
+
+    if (!regCode) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    const config = (regCode.alertConfig as Record<string, any>) || {};
+    const preventDuplicate = config.preventDuplicateAccount === true;
+
+    if (!preventDuplicate) {
+      return { success: true, isOccupied: false };
+    }
+
+    const onlineDevices = this.tcpSocketService.getOnlineDevicesByCode(
+      regCode.code,
+    );
+    let isOccupied = false;
+
+    for (const devId of onlineDevices) {
+      if (devId !== deviceId) {
+        const conn = this.tcpSocketService.getActiveConnection(devId);
+        if (conn && conn.deviceInfo?.currentAccount === account.trim()) {
+          const lastActive = conn.lastActiveTime;
+          const now = new Date();
+          const timeoutMs = 3 * 60 * 1000;
+          if (lastActive && now.getTime() - lastActive.getTime() > timeoutMs) {
+            try {
+              this.tcpSocketService.forceKickDevice(devId);
+            } catch (kickErr) {}
+            continue;
+          }
+          isOccupied = true;
+          break;
+        }
+      }
+    }
+
+    return { success: true, isOccupied };
+  }
+
+  /**
    * 解绑单个绑定的物理设备
    */
   async unbindSingleDevice(
