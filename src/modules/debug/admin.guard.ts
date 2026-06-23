@@ -25,6 +25,10 @@ export class AdminGuard implements CanActivate {
       }
     }
 
+    if (!token && request.query?.token) {
+      token = request.query.token as string;
+    }
+
     if (!token) {
       throw new UnauthorizedException('未提供认证凭证');
     }
