@@ -179,6 +179,8 @@ export class RegisterCodeController {
       count: number;
       maxActivations: number;
       appName?: string;
+      appId?: string;
+      allowedFeatures?: string[];
       cardType: string;
       durationMinutes: number;
       remark?: string;
@@ -295,6 +297,48 @@ export class RegisterCodeController {
   @ApiResponse({ status: 404, description: '激活码不存在' })
   async deleteCode(@Param('id') id: string) {
     await this.registerCodeService.delete(id);
+  }
+
+  /**
+   * 6.1 更新激活码的应用与功能权限配置
+   */
+  @Patch(':id/config')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '更新注册码的应用与功能权限配置',
+    description: '修改激活码关联的 appId 以及 allowedFeatures 细分权限',
+  })
+  async updateConfig(
+    @Param('id') id: string,
+    @Body() body: { appId: string | null; allowedFeatures: string[] },
+  ) {
+    return this.registerCodeService.updateConfig(id, body.appId, body.allowedFeatures);
+  }
+
+  /**
+   * 6.2 批量更新激活码的应用与功能权限配置
+   */
+  @Patch('batch-config')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '批量更新注册码的应用与功能权限配置',
+    description: '批量修改激活码关联的 appId 以及 allowedFeatures 细分权限',
+  })
+  async batchUpdateConfig(
+    @Body() body: { ids: string[]; appId: string | null; allowedFeatures: string[] },
+  ) {
+    if (!body.ids || body.ids.length === 0) {
+      throw new BadRequestException('参数 ids 不能为空');
+    }
+    const res = await this.registerCodeService.batchUpdateConfig(
+      body.ids,
+      body.appId,
+      body.allowedFeatures,
+    );
+    return {
+      success: true,
+      message: `成功更新了 ${res.count} 个激活码的应用与权限配置！`,
+    };
   }
 
   /**
@@ -419,11 +463,36 @@ export class RegisterCodeController {
       '上传老系统导出的 xls 格式数据，在内存中直接解构解析，并完成 Upsert 逻辑。',
   })
   @ApiResponse({ status: 200, description: '成功执行存量导入' })
-  async importCodes(@UploadedFile() file: any) {
+  async importCodes(
+    @UploadedFile() file: any,
+    @Body('appId') appId?: string,
+    @Body('allowedFeatures') allowedFeatures?: string | string[],
+    @Body('maxActivations') maxActivations?: string,
+    @Body('statusMode') statusMode?: 'file' | 'active' | 'disabled',
+  ) {
     if (!file || !file.buffer) {
       throw new BadRequestException('请选择有效的 Excel 注册码导出文件！');
     }
-    return this.registerCodeService.importBoundCodes(file.buffer);
+
+    let features: string[] | undefined;
+    if (typeof allowedFeatures === 'string') {
+      try {
+        features = JSON.parse(allowedFeatures);
+      } catch {
+        features = [allowedFeatures];
+      }
+    } else {
+      features = allowedFeatures;
+    }
+
+    const maxActiveNum = maxActivations ? parseInt(maxActivations, 10) : undefined;
+
+    return this.registerCodeService.importBoundCodes(file.buffer, {
+      appId,
+      allowedFeatures: features,
+      maxActivations: maxActiveNum,
+      statusMode,
+    });
   }
 
   /**

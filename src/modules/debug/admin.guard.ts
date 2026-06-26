@@ -44,6 +44,9 @@ export class AdminGuard implements CanActivate {
 
       // 必须是超级管理员角色 (admin)
       if (payload.role !== 'admin') {
+        console.warn(
+          `[AdminGuard Intercepted]: 路径 ${request.method} ${request.url} 拦截越权访问，Token角色为: ${payload.role}, 用户为: ${payload.username}`,
+        );
         throw new ForbiddenException('仅限超级管理员访问此调试接口');
       }
 

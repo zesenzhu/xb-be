@@ -14,6 +14,7 @@ import { DebugModule } from './modules/debug/debug.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { SystemSettingModule } from './modules/system-setting/system-setting.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { AppModule as AppConfigModule } from './modules/app/app.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { NotificationModule } from './modules/notification/notification.module';
     UploadModule,
     SystemSettingModule,
     NotificationModule,
+    AppConfigModule,
   ],
   controllers: [AppController],
   providers: [AppService],

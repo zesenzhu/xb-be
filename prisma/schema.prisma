@@ -73,6 +73,10 @@ model RegisterCode {
   usedNum         Int         @default(0) @map("used_num") // 当前已绑定的设备数
   status          Int         @default(1) // 状态：1-正常可用/未激活，2-使用中，0-禁用，3-已过期，4-设备数已满
   
+  // 关联应用
+  appId           String?     @map("app_id")
+  app             App?        @relation(fields: [appId], references: [id], onDelete: SetNull)
+
   // 绑定设备详情：存储设备ID、激活时间、IP等。
   // 格式如：[{"deviceId": "DEV001", "activatedAt": "2026-06-02T12:00:00Z"}]
   bindDevices     Json        @default("[]") @map("bind_devices")
@@ -84,6 +88,9 @@ model RegisterCode {
   // 格式如：["script:run", "api:data:fetch"]
   allowedApis     Json        @default("[]") @map("allowed_apis")
   
+  // 允许的脚本内细分功能列表，如 ["wild_hunt", "daily_task"]
+  allowedFeatures Json        @default("[]") @map("allowed_features")
+
   remark          String?     // 管理员备注
   alertEmail      String?     @map("alert_email") // 警报通知接收邮箱
   alertConfig     Json?       @default("{\"offline\":true,\"launcher\":true,\"locked\":false,\"vpn\":true,\"errorLog\":true,\"memoryLimit\":153600}") @map("alert_config") // 警报订阅配置开关
@@ -277,6 +284,44 @@ model DeviceAccountHistory {
   @@index([deviceId])
   @@index([createdAt])
   @@map("device_account_history")
+}
+
+// ==========================================
+// 8. 应用管理与多游戏脚本支持
+// ==========================================
+
+model App {
+  id          String       @id @default(uuid())
+  name        String       // 应用名称，例如 "天龙八部手游脚本"
+  appKey      String       @unique // 唯一标识，例如 "game_tlbb"
+  description String?      // 描述
+  status      Int          @default(1) // 状态：1-启用，0-禁用
+  dashboardPath String?    @map("dashboard_path") // 跳转界面/路由，例如 "/user/apps/frxxzrjp"
+  features    AppFeature[] // 应用下的功能列表
+  
+  // 反向关联注册码
+  registerCodes RegisterCode[]
+
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("app_config")
+}
+
+model AppFeature {
+  id          String   @id @default(uuid())
+  appId       String   @map("app_id")
+  name        String   // 功能名称，例如 "自动主线", "自动日常"
+  code        String   // 功能标识，例如 "auto_main", "auto_daily"
+  description String?  // 描述
+  
+  app         App      @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([appId, code])
+  @@map("app_feature")
 }
 
 

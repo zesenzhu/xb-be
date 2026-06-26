@@ -159,6 +159,19 @@ export class AuthController {
       parsedPermissions = [];
     }
 
+    // 解析 allowedFeatures JSON (应用功能权限点)
+    let parsedFeatures: string[] = [];
+    try {
+      const allowedFeatures = (regCode as any).allowedFeatures;
+      if (typeof allowedFeatures === 'string') {
+        parsedFeatures = JSON.parse(allowedFeatures) as string[];
+      } else if (Array.isArray(allowedFeatures)) {
+        parsedFeatures = allowedFeatures as string[];
+      }
+    } catch (error) {
+      parsedFeatures = [];
+    }
+
     return {
       success: true,
       message: '授权激活码登录成功，设备绑定已激活',
@@ -176,6 +189,13 @@ export class AuthController {
         },
         deviceId: deviceId, // 回传给前端
         expireTime: regCode.expireTime,
+        app: (regCode as any).app ? {
+          id: (regCode as any).app.id,
+          name: (regCode as any).app.name,
+          appKey: (regCode as any).app.appKey,
+          dashboardPath: (regCode as any).app.dashboardPath || `/user/apps/${(regCode as any).app.appKey}`,
+        } : null,
+        allowedFeatures: parsedFeatures,
       },
       permissions: parsedPermissions,
     };

@@ -703,6 +703,75 @@ export class RegisterCodeService {
     return deleted;
   }
 
+  async updateConfig(id: string, appId: string | null, allowedFeatures: string[]) {
+    const record = await this.prisma.registerCode.findUnique({ where: { id } });
+    if (!record) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    let appName: string | null = null;
+    if (appId) {
+      const app = await this.prisma.app.findUnique({ where: { id: appId } });
+      if (!app) {
+        throw new NotFoundException('所选应用不存在！');
+      }
+      appName = app.name;
+    }
+
+    const updated = await this.prisma.registerCode.update({
+      where: { id },
+      data: {
+        appId,
+        appName, // 冗余保存 appName 兼容旧版客户端
+        allowedFeatures: allowedFeatures as Prisma.InputJsonValue,
+      },
+    });
+
+    await this.recordActionLog(
+      updated.code,
+      'ADJUST',
+      `更新激活码应用与权限配置。应用 ID: ${appId || '通用'}，权限数: ${allowedFeatures.length}`,
+    );
+
+    return updated;
+  }
+
+  async batchUpdateConfig(ids: string[], appId: string | null, allowedFeatures: string[]) {
+    let appName: string | null = null;
+    if (appId) {
+      const app = await this.prisma.app.findUnique({ where: { id: appId } });
+      if (!app) {
+        throw new NotFoundException('所选应用不存在！');
+      }
+      appName = app.name;
+    }
+
+    const records = await this.prisma.registerCode.findMany({
+      where: { id: { in: ids } },
+      select: { code: true, id: true }
+    });
+
+    const result = await this.prisma.registerCode.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        appId,
+        appName,
+        allowedFeatures: allowedFeatures as Prisma.InputJsonValue,
+      },
+    });
+
+    // 记录日志
+    for (const record of records) {
+      await this.recordActionLog(
+        record.code,
+        'ADJUST',
+        `批量更新激活码应用与权限配置。应用 ID: ${appId || '通用'}，权限数: ${allowedFeatures.length}`,
+      );
+    }
+
+    return result;
+  }
+
   /**
    * 获取所有注册码绑定的物理设备列表 (供管理员大屏拉取)
    */
@@ -983,7 +1052,24 @@ export class RegisterCodeService {
   /**
    * 导入老系统激活码表格数据并实现覆盖式更新(Upsert)
    */
-  async importBoundCodes(fileBuffer: Buffer) {
+  async importBoundCodes(
+    fileBuffer: Buffer,
+    options: {
+      appId?: string;
+      allowedFeatures?: string[];
+      maxActivations?: number;
+      statusMode?: 'file' | 'active' | 'disabled';
+    },
+  ) {
+    const { appId, allowedFeatures: customFeatures, maxActivations, statusMode = 'file' } = options;
+    let boundApp: any = null;
+    if (appId) {
+      boundApp = await this.prisma.app.findUnique({
+        where: { id: appId },
+        include: { features: true },
+      });
+    }
+
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
@@ -1031,8 +1117,17 @@ export class RegisterCodeService {
       const rawVer = verIdx !== -1 ? row[verIdx]?.toString().trim() : '';
 
       // 字段规则映射
-      const appName =
+      let appName =
         rawAppName === '通用型版本' || !rawAppName ? null : rawAppName;
+
+      let boundAppId: string | null = null;
+      let allowedFeatures: string[] = [];
+
+      if (boundApp) {
+        boundAppId = boundApp.id;
+        appName = boundApp.name;
+        allowedFeatures = customFeatures || boundApp.features?.map((f: any) => f.code) || [];
+      }
 
       let cardType = 'YK';
       let durationMinutes = 43200;
@@ -1060,6 +1155,13 @@ export class RegisterCodeService {
         status = 3;
       }
 
+      // 根据状态控制选项做覆写
+      if (statusMode === 'active') {
+        status = 2;
+      } else if (statusMode === 'disabled') {
+        status = 0;
+      }
+
       const activatedAt = rawActiveTime ? new Date(rawActiveTime) : null;
       const expireTime = rawExpireTime ? new Date(rawExpireTime) : null;
 
@@ -1067,19 +1169,23 @@ export class RegisterCodeService {
       if (rawVer) remark += ` | 版本: ${rawVer}`;
       if (rawOrder) remark += ` | 订单号: ${rawOrder}`;
 
+      const maxActive = maxActivations && maxActivations > 0 ? maxActivations : 1;
+
       importedCodes.push({
         code: rawCode,
         appName,
+        appId: boundAppId,
         cardType,
         durationMinutes,
         status,
         activatedAt,
         expireTime,
         remark,
-        maxActive: 1,
+        maxActive,
         usedNum: 0,
         bindDevices: '[]',
         allowedApis: JSON.stringify(['api:data:fetch', 'script:run']),
+        allowedFeatures,
         source: 'IMPORT',
       });
     }
@@ -1135,6 +1241,9 @@ export class RegisterCodeService {
           this.prisma.registerCode.update({
             where: { code: item.code },
             data: {
+              appId: item.appId,
+              allowedFeatures: item.allowedFeatures as Prisma.InputJsonValue,
+              maxActive: item.maxActive,
               appName: item.appName,
               cardType: item.cardType,
               durationMinutes: item.durationMinutes,

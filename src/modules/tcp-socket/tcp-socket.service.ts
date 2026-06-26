@@ -499,6 +499,7 @@ export class TcpSocketService
               expireTime: authResult.expireTime,
               maxActive: authResult.maxActive,
               usedNum: authResult.usedNum,
+              allowedFeatures: (authResult as any).allowedFeatures || [],
             },
           }) + '\n',
         );
