@@ -49,6 +49,26 @@ export class UpdateMyAlertDto {
   alertConfig?: any;
 }
 
+export class SubscribePushDto {
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @IsObject()
+  @IsNotEmpty()
+  subscription: any;
+}
+
+export class UnsubscribePushDto {
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+
+  @IsString()
+  @IsNotEmpty()
+  endpoint: string;
+}
+
 @ApiTags('RegisterCode 注册码管理')
 @Controller('register-codes')
 export class RegisterCodeController {
@@ -594,6 +614,46 @@ export class RegisterCodeController {
       body.alertConfig,
     );
   }
+
+  /**
+   * 获取 PWA Web Push 报警公钥
+   */
+  @Get('vapid-public-key')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '获取 PWA Web Push 报警公钥',
+    description: '获取 Web Push 报警公钥以进行订阅绑定',
+  })
+  getVapidPublicKey() {
+    return { publicKey: process.env.VAPID_PUBLIC_KEY || 'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg' };
+  }
+
+  /**
+   * 绑定此设备的 PWA Web Push 订阅
+   */
+  @Post('subscribe-push')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '绑定 PWA Web Push 订阅',
+    description: '将当前浏览器的 PWA Web Push 订阅信息上报并关联到该注册码',
+  })
+  async subscribePush(@Body() body: SubscribePushDto) {
+    return this.registerCodeService.addPushSubscription(body.code, body.subscription);
+  }
+
+  /**
+   * 取消绑定此设备的 PWA Web Push 订阅
+   */
+  @Post('unsubscribe-push')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '取消 PWA Web Push 订阅',
+    description: '将当前浏览器的 PWA Web Push 订阅从该注册码关联中移除',
+  })
+  async unsubscribePush(@Body() body: UnsubscribePushDto) {
+    return this.registerCodeService.removePushSubscription(body.code, body.endpoint);
+  }
+
 
   /**
    * 获取最近紧急警报历史 (供大屏端展示)

@@ -18,6 +18,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as net from 'net';
 import { Subject } from 'rxjs';
 import * as nodemailer from 'nodemailer';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const webpush = require('web-push');
 
 interface ClientConnection {
   socket: net.Socket;
@@ -124,6 +126,18 @@ export class TcpSocketService
   ) {}
 
   onApplicationBootstrap() {
+    const publicKey = process.env.VAPID_PUBLIC_KEY || 'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg';
+    const privateKey = process.env.VAPID_PRIVATE_KEY || '62bMGEo73JjbBfDvZ5ig7LRSbQHf2xtSGkJPyMlHmZ4';
+    try {
+      webpush.setVapidDetails(
+        'mailto:support@example.com',
+        publicKey,
+        privateKey
+      );
+      this.logger.log('PWA Web Push VAPID 配置成功。');
+    } catch (err) {
+      this.logger.error('配置 PWA Web Push VAPID 失败:', err);
+    }
     this.startServer();
   }
 
@@ -1249,7 +1263,70 @@ export class TcpSocketService
       deviceId: conn.deviceId,
       payload: alertItem,
     });
+
+    // 触发 PWA 桌面气泡推送
+    this.sendWebPushNotification(conn.code, typeName, message).catch((err) => {
+      this.logger.error(`触发 PWA Web Push 警报发送异常:`, err);
+    });
   }
+
+  /**
+   * 向卡密订阅的所有 PWA 客户端发送桌面通知
+   */
+  private async sendWebPushNotification(code: string, typeName: string, message: string) {
+    try {
+      const regCode = await this.prisma.registerCode.findUnique({
+        where: { code },
+        select: { pushSubscriptions: true },
+      });
+      if (!regCode) return;
+
+      const subscriptions = (regCode.pushSubscriptions as any[]) || [];
+      if (subscriptions.length === 0) return;
+
+      const payload = JSON.stringify({
+        title: `🔴 挂机警报 - ${typeName}`,
+        body: message,
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/icon-192x192.png',
+        data: {
+          url: `/user/app/general` // 默认跳转地址
+        }
+      });
+
+      this.logger.log(`开始向卡密 [${code}] 的 ${subscriptions.length} 个 PWA 设备推送警报`);
+      
+      const promises = subscriptions.map(async (sub) => {
+        try {
+          await webpush.sendNotification(sub, payload);
+        } catch (err: any) {
+          // 如果通知服务返回 410 (Gone) 或 404，表明该订阅凭证已失效/被用户注销，自动将其从数据库清除
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            this.logger.warn(`PWA 订阅凭证失效，准备自动清除: ${sub.endpoint}`);
+            const fresh = await this.prisma.registerCode.findUnique({
+              where: { code },
+              select: { pushSubscriptions: true }
+            });
+            if (fresh) {
+              const freshSubs = (fresh.pushSubscriptions as any[]) || [];
+              const filtered = freshSubs.filter((s: any) => s.endpoint !== sub.endpoint);
+              await this.prisma.registerCode.update({
+                where: { code },
+                data: { pushSubscriptions: filtered }
+              }).catch(() => {});
+            }
+          } else {
+            this.logger.error(`向 ${sub.endpoint} 发送 Web Push 失败:`, err);
+          }
+        }
+      });
+
+      await Promise.all(promises);
+    } catch (err) {
+      this.logger.error(`执行 PWA 桌面推送异常:`, err);
+    }
+  }
+
 
   // 1. 意外断开
   private async handleUnexpectedOffline(

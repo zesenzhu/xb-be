@@ -94,6 +94,8 @@ model RegisterCode {
   remark          String?     // 管理员备注
   alertEmail      String?     @map("alert_email") // 警报通知接收邮箱
   alertConfig     Json?       @default("{\"offline\":true,\"launcher\":true,\"locked\":false,\"vpn\":true,\"errorLog\":true,\"memoryLimit\":153600}") @map("alert_config") // 警报订阅配置开关
+  pushSubscriptions Json?       @default("[]") @map("push_subscriptions") // PWA 桌面推送订阅对象 JSON 数组
+
 
   logs            ScriptLog[]
   unbindHistories RegisterCodeUnbindHistory[]

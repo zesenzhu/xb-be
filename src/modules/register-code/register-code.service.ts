@@ -1050,6 +1050,77 @@ export class RegisterCodeService {
   }
 
   /**
+   * 添加 PWA Web Push 订阅
+   */
+  async addPushSubscription(code: string, subscription: any) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('注册激活码不存在');
+    }
+
+    const subscriptions = (regCode.pushSubscriptions as any[]) || [];
+    // 避免重复添加相同的 endpoint
+    const exists = subscriptions.some(sub => sub.endpoint === subscription.endpoint);
+    if (!exists) {
+      subscriptions.push(subscription);
+      await this.prisma.registerCode.update({
+        where: { code },
+        data: {
+          pushSubscriptions: subscriptions,
+        },
+      });
+
+      await this.recordActionLog(
+        code,
+        'SUBSCRIBE_PUSH',
+        `订阅了桌面通知气泡: ${subscription.endpoint}`,
+        'user',
+      );
+    }
+
+    return { success: true, message: '桌面通知订阅成功' };
+  }
+
+  /**
+   * 取消 PWA Web Push 订阅
+   */
+  async removePushSubscription(code: string, endpoint: string) {
+    const regCode = await this.prisma.registerCode.findUnique({
+      where: { code },
+    });
+
+    if (!regCode) {
+      throw new NotFoundException('注册激活码不存在');
+    }
+
+    let subscriptions = (regCode.pushSubscriptions as any[]) || [];
+    const originalLength = subscriptions.length;
+    subscriptions = subscriptions.filter(sub => sub.endpoint !== endpoint);
+
+    if (subscriptions.length !== originalLength) {
+      await this.prisma.registerCode.update({
+        where: { code },
+        data: {
+          pushSubscriptions: subscriptions,
+        },
+      });
+
+      await this.recordActionLog(
+        code,
+        'UNSUBSCRIBE_PUSH',
+        `取消了桌面通知订阅`,
+        'user',
+      );
+    }
+
+    return { success: true, message: '已停用桌面通知订阅' };
+  }
+
+
+  /**
    * 导入老系统激活码表格数据并实现覆盖式更新(Upsert)
    */
   async importBoundCodes(
