@@ -78,6 +78,22 @@ export class DebugService {
    * 3. 发送测试桌面推送通知
    */
   async sendTestPush(code: string, title?: string, body?: string) {
+    const publicKey =
+      process.env.VAPID_PUBLIC_KEY ||
+      'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg';
+    const privateKey =
+      process.env.VAPID_PRIVATE_KEY ||
+      '62bMGEo73JjbBfDvZ5ig7LRSbQHf2xtSGkJPyMlHmZ4';
+    try {
+      webpush.setVapidDetails(
+        'mailto:support@example.com',
+        publicKey,
+        privateKey,
+      );
+    } catch (err) {
+      console.error('DebugService 配置 VAPID 失败:', err);
+    }
+
     const record = await this.prisma.registerCode.findUnique({
       where: { code },
       select: { pushSubscriptions: true },
@@ -120,6 +136,7 @@ export class DebugService {
         successCount++;
       } catch (err: unknown) {
         failCount++;
+        console.error('发送测试推送失败:', err);
         // 自动剔除失效凭证
         const error = err as { statusCode?: number };
         if (error.statusCode === 410 || error.statusCode === 404) {
