@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Body,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DebugService } from './debug.service';
@@ -36,5 +37,23 @@ export class DebugController {
   @ApiResponse({ status: 200, description: '清理成功' })
   async cleanup() {
     return this.debugService.cleanup();
+  }
+
+  @Post('test-push')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '发送测试桌面推送通知',
+    description: '向指定卡密（需已在用户端开启桌面通知）发送一条自定义测试推送消息。',
+  })
+  @ApiResponse({ status: 200, description: '发送测试推送完成' })
+  async sendTestPush(
+    @Body()
+    body: {
+      code: string;
+      title?: string;
+      body?: string;
+    },
+  ) {
+    return this.debugService.sendTestPush(body.code, body.title, body.body);
   }
 }
