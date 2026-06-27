@@ -60,6 +60,8 @@ jobs:
           echo "DOUBAO_BASE_URL=${{ secrets.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}" >> .env
           echo "DOUBAO_MODEL_ENDPOINT=${{ secrets.DOUBAO_MODEL_ENDPOINT || '' }}" >> .env
           echo "COOKIE_SECURE=${{ secrets.COOKIE_SECURE || 'false' }}" >> .env
+          echo "VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY || 'BEQZNO52x-eJiLqDzZbMQ37MAHFlocRWl9RU5wQZkiQ64Ai0zuPC_SjYC5LZq37vAugVfgMuNAo7FRGZGKcx25w' }}" >> .env
+          echo "VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY || 'LaQ5AAXS1w327XkTf4moZqcUPgLaOD5L4nE-gPymQTU' }}" >> .env
 
       - name: Copy docker-compose, .env and image tar via SCP
         uses: appleboy/scp-action@v0.1.7
