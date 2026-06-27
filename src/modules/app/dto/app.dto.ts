@@ -12,7 +12,10 @@ export class CreateAppDto {
   @IsNotEmpty({ message: '应用标识 appKey 不能为空' })
   appKey: string;
 
-  @ApiPropertyOptional({ description: '应用描述', example: '主要包含野外挂机和自动任务' })
+  @ApiPropertyOptional({
+    description: '应用描述',
+    example: '主要包含野外挂机和自动任务',
+  })
   @IsString()
   @IsOptional()
   description?: string;
@@ -23,7 +26,10 @@ export class CreateAppDto {
   @IsOptional()
   status?: number;
 
-  @ApiPropertyOptional({ description: '跳转大屏界面/路由', example: '/user/apps/frxxzrjp' })
+  @ApiPropertyOptional({
+    description: '跳转大屏界面/路由',
+    example: '/user/apps/frxxzrjp',
+  })
   @IsString()
   @IsOptional()
   dashboardPath?: string;

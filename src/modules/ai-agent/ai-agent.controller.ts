@@ -30,13 +30,10 @@ export class AiAgentController {
 
     // 调用 Service 逻辑，并通过 RxJS Pipe 转换为 NestJS 的 MessageEvent 格式
     return this.aiAgentService.runChatStream(model, messages, temperature).pipe(
-      map(
-        (msg) =>
-          ({
-            type: msg.event, // 作为 SSE 事件名推送（前端 EventSource / ReadStream 会据此匹配）
-            data: msg.data,
-          }) as MessageEvent,
-      ),
+      map((msg) => ({
+        type: msg.event, // 作为 SSE 事件名推送（前端 EventSource / ReadStream 会据此匹配）
+        data: msg.data,
+      })),
     );
   }
 }

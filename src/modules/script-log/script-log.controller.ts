@@ -55,12 +55,9 @@ export class ScriptLogController {
     return this.tcpSocketService.logBroadcaster$.pipe(
       // 过滤：仅输出此设备的日志且和对应的注册码匹配
       filter((event) => event.deviceId === deviceId),
-      map(
-        (event) =>
-          ({
-            data: event.log,
-          }) as MessageEvent,
-      ),
+      map((event) => ({
+        data: event.log,
+      })),
       // 断开连接时自动清理：通知设备停止上报
       finalize(() => {
         this.tcpSocketService.removeViewer(deviceId);

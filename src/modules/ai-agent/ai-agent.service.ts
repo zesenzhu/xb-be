@@ -126,15 +126,14 @@ export class AiAgentService {
           // 3. 调用 API (开启 stream: true)
           const stream = await openai.chat.completions.create({
             model: resolvedModel,
-            messages:
-              apiMessages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+            messages: apiMessages,
             temperature: temperature,
             tools: tools,
             tool_choice: 'auto',
             stream: true,
           });
 
-          let currentToolCalls: ActiveToolCall[] = [];
+          const currentToolCalls: ActiveToolCall[] = [];
 
           for await (const chunk of stream) {
             const delta = chunk.choices[0]?.delta;

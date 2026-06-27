@@ -72,12 +72,9 @@ export class NotificationController {
     return this.notificationService.notificationBroadcaster$
       .asObservable()
       .pipe(
-        map(
-          (notification) =>
-            ({
-              data: JSON.stringify(notification),
-            }) as MessageEvent,
-        ),
+        map((notification) => ({
+          data: JSON.stringify(notification),
+        })),
       );
   }
 }

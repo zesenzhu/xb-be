@@ -189,12 +189,16 @@ export class AuthController {
         },
         deviceId: deviceId, // 回传给前端
         expireTime: regCode.expireTime,
-        app: (regCode as any).app ? {
-          id: (regCode as any).app.id,
-          name: (regCode as any).app.name,
-          appKey: (regCode as any).app.appKey,
-          dashboardPath: (regCode as any).app.dashboardPath || `/user/apps/${(regCode as any).app.appKey}`,
-        } : null,
+        app: (regCode as any).app
+          ? {
+              id: (regCode as any).app.id,
+              name: (regCode as any).app.name,
+              appKey: (regCode as any).app.appKey,
+              dashboardPath:
+                (regCode as any).app.dashboardPath ||
+                `/user/apps/${(regCode as any).app.appKey}`,
+            }
+          : null,
         allowedFeatures: parsedFeatures,
       },
       permissions: parsedPermissions,

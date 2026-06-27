@@ -70,7 +70,7 @@ export class AuthService {
     ip?: string,
     userAgent?: string,
   ) {
-        // 1. 查询激活码
+    // 1. 查询激活码
     const regCode = await this.prisma.registerCode.findUnique({
       where: { code },
       include: { app: true },

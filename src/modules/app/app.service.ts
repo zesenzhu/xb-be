@@ -1,6 +1,15 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateAppDto, UpdateAppDto, CreateAppFeatureDto, UpdateAppFeatureDto } from './dto/app.dto';
+import {
+  CreateAppDto,
+  UpdateAppDto,
+  CreateAppFeatureDto,
+  UpdateAppFeatureDto,
+} from './dto/app.dto';
 
 @Injectable()
 export class AppService {
@@ -15,7 +24,9 @@ export class AppService {
       where: { appKey: dto.appKey },
     });
     if (existing) {
-      throw new BadRequestException(`应用标识 appKey "${dto.appKey}" 已存在，请更换`);
+      throw new BadRequestException(
+        `应用标识 appKey "${dto.appKey}" 已存在，请更换`,
+      );
     }
 
     return this.prisma.app.create({
@@ -62,7 +73,9 @@ export class AppService {
         },
       });
       if (existing) {
-        throw new BadRequestException(`应用标识 appKey "${dto.appKey}" 已被其他应用使用`);
+        throw new BadRequestException(
+          `应用标识 appKey "${dto.appKey}" 已被其他应用使用`,
+        );
       }
     }
 

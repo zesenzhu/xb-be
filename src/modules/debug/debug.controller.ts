@@ -43,7 +43,8 @@ export class DebugController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '发送测试桌面推送通知',
-    description: '向指定卡密（需已在用户端开启桌面通知）发送一条自定义测试推送消息。',
+    description:
+      '向指定卡密（需已在用户端开启桌面通知）发送一条自定义测试推送消息。',
   })
   @ApiResponse({ status: 200, description: '发送测试推送完成' })
   async sendTestPush(
