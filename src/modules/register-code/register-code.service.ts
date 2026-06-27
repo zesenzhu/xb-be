@@ -2172,4 +2172,47 @@ export class RegisterCodeService {
       },
     });
   }
+
+  /**
+   * 微调单个激活码的最大允许设备绑定数 (最大设备额度)
+   */
+  async adjustMaxActive(id: string, maxActive: number) {
+    const record = await this.prisma.registerCode.findUnique({
+      where: { id },
+    });
+    if (!record) {
+      throw new NotFoundException('该注册码不存在！');
+    }
+
+    // 根据新额度动态计算状态：若从满额(4)调大且已用数已小于新额度，则解锁恢复为使用中(2)；反之若调小且已用数超额，则标记为满额(4)
+    let nextStatus = record.status;
+    if (record.status === 2 || record.status === 4) {
+      nextStatus = record.usedNum >= maxActive ? 4 : 2;
+    }
+
+    const updated = await this.prisma.registerCode.update({
+      where: { id },
+      data: {
+        maxActive,
+        status: nextStatus,
+      },
+    });
+
+    // 记录操作审计变更日志
+    await this.prisma.registerCodeLog.create({
+      data: {
+        code: record.code,
+        actionType: 'ADJUST',
+        description: `微调设备绑定限制: 由 ${record.maxActive} 台变更为 ${maxActive} 台 (当前已绑定: ${record.usedNum} 台)`,
+        operator: 'admin',
+      },
+    });
+
+    return {
+      success: true,
+      message: `已成功将注册码 [${record.code}] 的设备限制调整为 ${maxActive} 台`,
+      data: updated,
+    };
+  }
 }
+

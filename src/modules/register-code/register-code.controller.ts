@@ -281,6 +281,31 @@ export class RegisterCodeController {
   }
 
   /**
+   * 4.5 微调单个激活码的最大允许设备绑定数 (最大设备额度)
+   */
+  @Patch(':id/adjust-max-active')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '微调单个激活码的允许绑定最大设备数限制',
+    description: '增减或直接设定该激活码可同时绑定的物理设备限制数。',
+  })
+  @ApiResponse({ status: 200, description: '微调最大绑定设备数成功' })
+  @ApiResponse({ status: 404, description: '激活码不存在' })
+  async adjustMaxActive(
+    @Param('id') id: string,
+    @Body('maxActive') maxActive: number,
+  ) {
+    if (maxActive === undefined || maxActive === null) {
+      throw new BadRequestException('请提供需要微调的设备限制额度！');
+    }
+    const val = parseInt(maxActive as any, 10);
+    if (isNaN(val) || val < 1) {
+      throw new BadRequestException('最大绑定设备数至少为 1 台！');
+    }
+    return this.registerCodeService.adjustMaxActive(id, val);
+  }
+
+  /**
    * 5. 强行解绑当前注册码上的全部设备
    */
   @Patch(':id/unbind')
