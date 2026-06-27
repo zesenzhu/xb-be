@@ -62,6 +62,7 @@ jobs:
           echo "COOKIE_SECURE=${{ secrets.COOKIE_SECURE || 'false' }}" >> .env
           echo "VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY || 'BEQZNO52x-eJiLqDzZbMQ37MAHFlocRWl9RU5wQZkiQ64Ai0zuPC_SjYC5LZq37vAugVfgMuNAo7FRGZGKcx25w' }}" >> .env
           echo "VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY || 'LaQ5AAXS1w327XkTf4moZqcUPgLaOD5L4nE-gPymQTU' }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET || 'xb-secret-key-2026' }}" >> .env
 
       - name: Copy docker-compose, .env and image tar via SCP
         uses: appleboy/scp-action@v0.1.7
