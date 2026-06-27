@@ -18,7 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as net from 'net';
 import { Subject } from 'rxjs';
 import * as nodemailer from 'nodemailer';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const webpush = require('web-push');
 
 interface ClientConnection {
@@ -126,13 +126,17 @@ export class TcpSocketService
   ) {}
 
   onApplicationBootstrap() {
-    const publicKey = process.env.VAPID_PUBLIC_KEY || 'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg';
-    const privateKey = process.env.VAPID_PRIVATE_KEY || '62bMGEo73JjbBfDvZ5ig7LRSbQHf2xtSGkJPyMlHmZ4';
+    const publicKey =
+      process.env.VAPID_PUBLIC_KEY ||
+      'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg';
+    const privateKey =
+      process.env.VAPID_PRIVATE_KEY ||
+      '62bMGEo73JjbBfDvZ5ig7LRSbQHf2xtSGkJPyMlHmZ4';
     try {
       webpush.setVapidDetails(
         'mailto:support@example.com',
         publicKey,
-        privateKey
+        privateKey,
       );
       this.logger.log('PWA Web Push VAPID 配置成功。');
     } catch (err) {
@@ -253,7 +257,7 @@ export class TcpSocketService
         const id = deviceId;
         this.logger.log(`客户端连接已断开，清理缓存: ${id}`);
         const conn = this.activeConnections.get(id);
-        if (conn) {
+        if (conn && conn.socket === socket) {
           // 如果下线前有正在活跃的账号，记录下线
           const lastAcc = conn.lastTrackedAccount;
           if (lastAcc && lastAcc !== '未登录' && lastAcc !== '') {
@@ -345,6 +349,13 @@ export class TcpSocketService
                 this.offlineAlertTimers.set(id, timer);
               });
           }
+
+          this.activeConnections.delete(id);
+          this.logStreamViewers.delete(id);
+        } else {
+          this.logger.log(
+            `[连接断开评估] 忽略已失效/被替换的连接关闭事件: ${id}`,
+          );
         }
 
         // 清理该设备名下的定时器，避免内存泄漏
@@ -356,9 +367,6 @@ export class TcpSocketService
           clearTimeout(this.lockedTimers.get(id));
           this.lockedTimers.delete(id);
         }
-
-        this.activeConnections.delete(id);
-        this.logStreamViewers.delete(id);
       }
     });
 
@@ -464,6 +472,28 @@ export class TcpSocketService
         // 绑定设备标识至本地 socket 钩子
         setDeviceId(deviceId);
 
+        // 💡 检查并清理同设备已存在的旧连接，防止内存和数据库账号流转记录出错 (解决覆盖连接时的账号下线遗漏 Bug)
+        const oldConn = this.activeConnections.get(deviceId);
+        if (oldConn) {
+          this.logger.log(
+            `[连接重置] 检测到设备 [${deviceId}] 的旧 TCP 连接仍在内存中，正在强制清理...`,
+          );
+          const lastAcc = oldConn.lastTrackedAccount;
+          if (lastAcc && lastAcc !== '未登录' && lastAcc !== '') {
+            await this.handleAccountLogout(deviceId, lastAcc).catch((err) => {
+              this.logger.error(
+                `清理重置设备 [${deviceId}] 下线账号记录出错:`,
+                err,
+              );
+            });
+          }
+          try {
+            oldConn.socket.destroy();
+          } catch {
+            // 忽略销毁时的错误描述
+          }
+        }
+
         // 注册到在线长连接内存映射中
         this.activeConnections.set(deviceId, {
           socket,
@@ -567,7 +597,10 @@ export class TcpSocketService
       }
 
       let isOccupied = false;
-      for (const [otherDeviceId, otherConn] of this.activeConnections.entries()) {
+      for (const [
+        otherDeviceId,
+        otherConn,
+      ] of this.activeConnections.entries()) {
         if (otherDeviceId !== deviceId && otherConn.code === connection.code) {
           const otherAccount = otherConn.deviceInfo?.currentAccount;
           if (otherAccount && otherAccount.trim() === checkAcc) {
@@ -688,9 +721,11 @@ export class TcpSocketService
 
         // 【新增】：被动冲突防御检查
         if (newAccount !== '未登录' && newAccount !== '') {
-          this.checkAccountSharingConflict(connection, newAccount).catch((err) => {
-            this.logger.error(`执行被动账号防多开冲突评估出错:`, err);
-          });
+          this.checkAccountSharingConflict(connection, newAccount).catch(
+            (err) => {
+              this.logger.error(`执行被动账号防多开冲突评估出错:`, err);
+            },
+          );
         }
       }
 
@@ -1269,7 +1304,7 @@ export class TcpSocketService
 
     // 广播给网页端 SSE
     this.deviceState$.next({
-      type: 'device_alert' as any,
+      type: 'device_alert',
       code: conn.code,
       deviceId: conn.deviceId,
       payload: alertItem,
@@ -1284,7 +1319,11 @@ export class TcpSocketService
   /**
    * 向卡密订阅的所有 PWA 客户端发送桌面通知
    */
-  private async sendWebPushNotification(code: string, typeName: string, message: string) {
+  private async sendWebPushNotification(
+    code: string,
+    typeName: string,
+    message: string,
+  ) {
     try {
       const regCode = await this.prisma.registerCode.findUnique({
         where: { code },
@@ -1301,12 +1340,14 @@ export class TcpSocketService
         icon: '/icons/icon-192x192.png',
         badge: '/icons/icon-192x192.png',
         data: {
-          url: `/user/app/general` // 默认跳转地址
-        }
+          url: `/user/app/general`, // 默认跳转地址
+        },
       });
 
-      this.logger.log(`开始向卡密 [${code}] 的 ${subscriptions.length} 个 PWA 设备推送警报`);
-      
+      this.logger.log(
+        `开始向卡密 [${code}] 的 ${subscriptions.length} 个 PWA 设备推送警报`,
+      );
+
       const promises = subscriptions.map(async (sub) => {
         try {
           await webpush.sendNotification(sub, payload);
@@ -1316,15 +1357,19 @@ export class TcpSocketService
             this.logger.warn(`PWA 订阅凭证失效，准备自动清除: ${sub.endpoint}`);
             const fresh = await this.prisma.registerCode.findUnique({
               where: { code },
-              select: { pushSubscriptions: true }
+              select: { pushSubscriptions: true },
             });
             if (fresh) {
               const freshSubs = (fresh.pushSubscriptions as any[]) || [];
-              const filtered = freshSubs.filter((s: any) => s.endpoint !== sub.endpoint);
-              await this.prisma.registerCode.update({
-                where: { code },
-                data: { pushSubscriptions: filtered }
-              }).catch(() => {});
+              const filtered = freshSubs.filter(
+                (s: any) => s.endpoint !== sub.endpoint,
+              );
+              await this.prisma.registerCode
+                .update({
+                  where: { code },
+                  data: { pushSubscriptions: filtered },
+                })
+                .catch(() => {});
             }
           } else {
             this.logger.error(`向 ${sub.endpoint} 发送 Web Push 失败:`, err);
@@ -1337,7 +1382,6 @@ export class TcpSocketService
       this.logger.error(`执行 PWA 桌面推送异常:`, err);
     }
   }
-
 
   // 1. 意外断开
   private async handleUnexpectedOffline(
@@ -1743,7 +1787,10 @@ export class TcpSocketService
             const lastActive = otherConn.lastActiveTime;
             const now = new Date();
             const timeoutMs = 3 * 60 * 1000;
-            if (lastActive && now.getTime() - lastActive.getTime() > timeoutMs) {
+            if (
+              lastActive &&
+              now.getTime() - lastActive.getTime() > timeoutMs
+            ) {
               this.logger.log(
                 `[防重复多开] 检测到设备 [${otherDeviceId}] 的账号 [${account}] 虽然占线，但心跳已过期，不引发冲突，强制回收并继续`,
               );

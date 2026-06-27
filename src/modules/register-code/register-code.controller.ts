@@ -332,7 +332,11 @@ export class RegisterCodeController {
     @Param('id') id: string,
     @Body() body: { appId: string | null; allowedFeatures: string[] },
   ) {
-    return this.registerCodeService.updateConfig(id, body.appId, body.allowedFeatures);
+    return this.registerCodeService.updateConfig(
+      id,
+      body.appId,
+      body.allowedFeatures,
+    );
   }
 
   /**
@@ -345,7 +349,12 @@ export class RegisterCodeController {
     description: '批量修改激活码关联的 appId 以及 allowedFeatures 细分权限',
   })
   async batchUpdateConfig(
-    @Body() body: { ids: string[]; appId: string | null; allowedFeatures: string[] },
+    @Body()
+    body: {
+      ids: string[];
+      appId: string | null;
+      allowedFeatures: string[];
+    },
   ) {
     if (!body.ids || body.ids.length === 0) {
       throw new BadRequestException('参数 ids 不能为空');
@@ -505,7 +514,9 @@ export class RegisterCodeController {
       features = allowedFeatures;
     }
 
-    const maxActiveNum = maxActivations ? parseInt(maxActivations, 10) : undefined;
+    const maxActiveNum = maxActivations
+      ? parseInt(maxActivations, 10)
+      : undefined;
 
     return this.registerCodeService.importBoundCodes(file.buffer, {
       appId,
@@ -583,7 +594,8 @@ export class RegisterCodeController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '客户端优雅退出通知',
-    description: '客户端脚本停止运行时调用，标记设备为优雅退出，避免误报断线邮件。',
+    description:
+      '客户端脚本停止运行时调用，标记设备为优雅退出，避免误报断线邮件。',
   })
   @ApiResponse({ status: 200, description: '标记退出成功' })
   exitDevice(@Body() body: VerifyRegisterCodeDto) {
@@ -637,7 +649,11 @@ export class RegisterCodeController {
     description: '获取 Web Push 报警公钥以进行订阅绑定',
   })
   getVapidPublicKey() {
-    return { publicKey: process.env.VAPID_PUBLIC_KEY || 'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg' };
+    return {
+      publicKey:
+        process.env.VAPID_PUBLIC_KEY ||
+        'BJye1Ie6d8CnZyRtc6u2M-c2DzO1ezcVa-qowlWKfMp1WIVcuwt088swZCctnLaGDzsf7eZE71h-rc5JLsNTcgg',
+    };
   }
 
   /**
@@ -650,7 +666,10 @@ export class RegisterCodeController {
     description: '将当前浏览器的 PWA Web Push 订阅信息上报并关联到该注册码',
   })
   async subscribePush(@Body() body: SubscribePushDto) {
-    return this.registerCodeService.addPushSubscription(body.code, body.subscription);
+    return this.registerCodeService.addPushSubscription(
+      body.code,
+      body.subscription,
+    );
   }
 
   /**
@@ -663,9 +682,11 @@ export class RegisterCodeController {
     description: '将当前浏览器的 PWA Web Push 订阅从该注册码关联中移除',
   })
   async unsubscribePush(@Body() body: UnsubscribePushDto) {
-    return this.registerCodeService.removePushSubscription(body.code, body.endpoint);
+    return this.registerCodeService.removePushSubscription(
+      body.code,
+      body.endpoint,
+    );
   }
-
 
   /**
    * 获取最近紧急警报历史 (供大屏端展示)

@@ -321,8 +321,6 @@ export class RegisterCodeService {
       throw new BadRequestException('该注册码已被管理员禁用！');
     }
 
-
-
     let devices: BindDeviceItem[] = [];
     try {
       devices =
@@ -698,7 +696,11 @@ export class RegisterCodeService {
     return deleted;
   }
 
-  async updateConfig(id: string, appId: string | null, allowedFeatures: string[]) {
+  async updateConfig(
+    id: string,
+    appId: string | null,
+    allowedFeatures: string[],
+  ) {
     const record = await this.prisma.registerCode.findUnique({ where: { id } });
     if (!record) {
       throw new NotFoundException('该注册码不存在！');
@@ -718,7 +720,7 @@ export class RegisterCodeService {
       data: {
         appId,
         appName, // 冗余保存 appName 兼容旧版客户端
-        allowedFeatures: allowedFeatures as Prisma.InputJsonValue,
+        allowedFeatures: allowedFeatures,
       },
     });
 
@@ -731,7 +733,11 @@ export class RegisterCodeService {
     return updated;
   }
 
-  async batchUpdateConfig(ids: string[], appId: string | null, allowedFeatures: string[]) {
+  async batchUpdateConfig(
+    ids: string[],
+    appId: string | null,
+    allowedFeatures: string[],
+  ) {
     let appName: string | null = null;
     if (appId) {
       const app = await this.prisma.app.findUnique({ where: { id: appId } });
@@ -743,7 +749,7 @@ export class RegisterCodeService {
 
     const records = await this.prisma.registerCode.findMany({
       where: { id: { in: ids } },
-      select: { code: true, id: true }
+      select: { code: true, id: true },
     });
 
     const result = await this.prisma.registerCode.updateMany({
@@ -751,7 +757,7 @@ export class RegisterCodeService {
       data: {
         appId,
         appName,
-        allowedFeatures: allowedFeatures as Prisma.InputJsonValue,
+        allowedFeatures: allowedFeatures,
       },
     });
 
@@ -1058,7 +1064,9 @@ export class RegisterCodeService {
 
     const subscriptions = (regCode.pushSubscriptions as any[]) || [];
     // 避免重复添加相同的 endpoint
-    const exists = subscriptions.some(sub => sub.endpoint === subscription.endpoint);
+    const exists = subscriptions.some(
+      (sub) => sub.endpoint === subscription.endpoint,
+    );
     if (!exists) {
       subscriptions.push(subscription);
       await this.prisma.registerCode.update({
@@ -1093,7 +1101,7 @@ export class RegisterCodeService {
 
     let subscriptions = (regCode.pushSubscriptions as any[]) || [];
     const originalLength = subscriptions.length;
-    subscriptions = subscriptions.filter(sub => sub.endpoint !== endpoint);
+    subscriptions = subscriptions.filter((sub) => sub.endpoint !== endpoint);
 
     if (subscriptions.length !== originalLength) {
       await this.prisma.registerCode.update({
@@ -1114,7 +1122,6 @@ export class RegisterCodeService {
     return { success: true, message: '已停用桌面通知订阅' };
   }
 
-
   /**
    * 导入老系统激活码表格数据并实现覆盖式更新(Upsert)
    */
@@ -1127,7 +1134,12 @@ export class RegisterCodeService {
       statusMode?: 'file' | 'active' | 'disabled';
     },
   ) {
-    const { appId, allowedFeatures: customFeatures, maxActivations, statusMode = 'file' } = options;
+    const {
+      appId,
+      allowedFeatures: customFeatures,
+      maxActivations,
+      statusMode = 'file',
+    } = options;
     let boundApp: any = null;
     if (appId) {
       boundApp = await this.prisma.app.findUnique({
@@ -1192,7 +1204,8 @@ export class RegisterCodeService {
       if (boundApp) {
         boundAppId = boundApp.id;
         appName = boundApp.name;
-        allowedFeatures = customFeatures || boundApp.features?.map((f: any) => f.code) || [];
+        allowedFeatures =
+          customFeatures || boundApp.features?.map((f: any) => f.code) || [];
       }
 
       let cardType = 'YK';
@@ -1235,7 +1248,8 @@ export class RegisterCodeService {
       if (rawVer) remark += ` | 版本: ${rawVer}`;
       if (rawOrder) remark += ` | 订单号: ${rawOrder}`;
 
-      const maxActive = maxActivations && maxActivations > 0 ? maxActivations : 1;
+      const maxActive =
+        maxActivations && maxActivations > 0 ? maxActivations : 1;
 
       importedCodes.push({
         code: rawCode,
@@ -1308,7 +1322,7 @@ export class RegisterCodeService {
             where: { code: item.code },
             data: {
               appId: item.appId,
-              allowedFeatures: item.allowedFeatures as Prisma.InputJsonValue,
+              allowedFeatures: item.allowedFeatures,
               maxActive: item.maxActive,
               appName: item.appName,
               cardType: item.cardType,
