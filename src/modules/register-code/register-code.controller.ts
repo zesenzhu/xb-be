@@ -579,6 +579,18 @@ export class RegisterCodeController {
     return this.registerCodeService.verifyCode(body.code, body.deviceId);
   }
 
+  @Post('exit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '客户端优雅退出通知',
+    description: '客户端脚本停止运行时调用，标记设备为优雅退出，避免误报断线邮件。',
+  })
+  @ApiResponse({ status: 200, description: '标记退出成功' })
+  exitDevice(@Body() body: VerifyRegisterCodeDto) {
+    this.registerCodeService.exitDevice(body.deviceId);
+    return { success: true };
+  }
+
   /**
    * 获取卡密警报配置 (供大屏端或用户端展示)
    */

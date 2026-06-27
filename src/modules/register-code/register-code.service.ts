@@ -1757,6 +1757,13 @@ export class RegisterCodeService {
   }
 
   /**
+   * 优雅下线通知
+   */
+  exitDevice(deviceId: string) {
+    this.tcpSocketService.markDeviceAsExiting(deviceId);
+  }
+
+  /**
    * 强制切换设备的登录账号 (Web 大屏下发)
    */
   async switchAccountDevice(

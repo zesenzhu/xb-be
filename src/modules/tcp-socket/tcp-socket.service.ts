@@ -1039,6 +1039,17 @@ export class TcpSocketService
   }
 
   /**
+   * 标记设备为优雅退出状态，防止其下线后触发超时报警邮件
+   */
+  public markDeviceAsExiting(deviceId: string) {
+    const connection = this.activeConnections.get(deviceId);
+    if (connection) {
+      this.logger.log(`设备标记为优雅退出，防止离线报警: ${deviceId}`);
+      connection.isExiting = true;
+    }
+  }
+
+  /**
    * 获取当前内存中活跃的 TCP 连接总数
    */
   public getActiveConnectionsCount(): number {
