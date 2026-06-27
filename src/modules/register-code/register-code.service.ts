@@ -321,12 +321,7 @@ export class RegisterCodeService {
       throw new BadRequestException('该注册码已被管理员禁用！');
     }
 
-    // 应用关联校验
-    if (record.appName && record.appName !== appName) {
-      throw new BadRequestException(
-        `此注册码限制专用于应用: [${record.appName}]`,
-      );
-    }
+
 
     let devices: BindDeviceItem[] = [];
     try {
