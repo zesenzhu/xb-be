@@ -24,6 +24,7 @@ RUN npx prisma generate
 # 复制所有源代码物理编译
 COPY . .
 RUN pnpm run build
+RUN pnpm prune --prod
 
 # ==========================================
 # 2. 运行阶段 (Runner Stage)

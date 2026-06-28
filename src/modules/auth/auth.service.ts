@@ -154,14 +154,16 @@ export class AuthService {
     username: string;
     role: string;
   }) {
+    const isClient = payload.role === 'client';
+
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.jwtSecret,
-      expiresIn: '1h', // 访问令牌 1 小时失效
+      expiresIn: isClient ? '7d' : '1h', // 用户端 7 天失效，管理员 1 小时
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
       secret: this.jwtSecret,
-      expiresIn: '7d', // 刷新令牌 7 天失效
+      expiresIn: isClient ? '90d' : '7d', // 用户端 90 天失效，管理员 7 天
     });
 
     return { accessToken, refreshToken };
@@ -185,28 +187,34 @@ export class AuthService {
       process.env.COOKIE_SECURE === 'true' ||
       (isProduction && process.env.COOKIE_SECURE !== 'false');
 
-    // 物理防冲突：管理员与普通用户使用不同名称的 Cookie
+    // 物理防冲突：管理员与普通用户使用不同名称 of Cookie
     const accessCookieName =
       type === 'admin' ? 'access_token' : 'user_access_token';
     const refreshCookieName =
       type === 'admin' ? 'refresh_token' : 'user_refresh_token';
 
-    // 写入访问令牌：1 小时有效期
+    const isUser = type === 'user';
+    const accessMaxAge = isUser ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000; // 用户端 7 天，管理员 1 小时
+    const refreshMaxAge = isUser
+      ? 90 * 24 * 60 * 60 * 1000
+      : 7 * 24 * 60 * 60 * 1000; // 用户端 90 天，管理员 7 天
+
+    // 写入访问令牌
     res.cookie(accessCookieName, tokens.accessToken, {
       httpOnly: true,
       secure: useSecure,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 1000,
+      maxAge: accessMaxAge,
     });
 
-    // 写入刷新令牌：7 天有效期
+    // 写入刷新令牌
     res.cookie(refreshCookieName, tokens.refreshToken, {
       httpOnly: true,
       secure: useSecure,
       sameSite: 'lax',
       path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: refreshMaxAge,
     });
   }
 
