@@ -10,6 +10,8 @@ import { SystemNotification } from '@prisma/client';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as nodemailer from 'nodemailer';
+import * as webpush from 'web-push';
 
 const execAsync = promisify(exec);
 
@@ -26,6 +28,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
   private lastMemoryAlertTime = 0;
   private lastDiskAlertTime = 0;
   private lastLogVolumeAlertTime = 0;
+  private lastCheckLicenseExpiryTime = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -178,6 +181,14 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
   private async checkServerHealth() {
     const now = Date.now();
 
+    // 每 12 小时执行一次卡密剩余不足 3 天检测
+    if (now - this.lastCheckLicenseExpiryTime > 43200000) {
+      this.lastCheckLicenseExpiryTime = now;
+      this.checkLicenseExpiry().catch((err) => {
+        this.logger.error('执行卡密到期轮询监测定时任务异常:', err);
+      });
+    }
+
     // 1. 内存监测 (冷喷 1 小时)
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
@@ -244,5 +255,226 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     } catch (err: any) {
       this.logger.error(`日志库行数统计异常: ${err.message}`);
     }
+  }
+
+  /**
+   * 自动扫描过期时间不足 3 天的卡密并发送警报
+   */
+  private async checkLicenseExpiry() {
+    this.logger.log('[定时任务] 开始执行激活码到期剩余不足 3 天轮询检测...');
+    try {
+      // 1. 获取所有配置参数 (SMTP 与 VAPID 推送公私钥等)
+      const settings = await this.prisma.systemSetting.findMany({
+        where: {
+          key: {
+            in: [
+              'mail_enabled',
+              'smtp_host',
+              'smtp_port',
+              'smtp_user',
+              'smtp_pass',
+              'smtp_from',
+              'alert_mail_enabled',
+              'vapid_private_key',
+              'vapid_public_key',
+              'vapid_email',
+            ],
+          },
+        },
+      });
+
+      const config: Record<string, string> = {};
+      settings.forEach((item) => {
+        config[item.key] = item.value;
+      });
+
+      // 动态配置 Web Push 公私钥
+      const vapidPriv = config['vapid_private_key'];
+      const vapidPub = config['vapid_public_key'];
+      const vapidEmail = config['vapid_email'] || 'mailto:support@example.com';
+      if (vapidPriv && vapidPub) {
+        webpush.setVapidDetails(vapidEmail, vapidPub, vapidPriv);
+      }
+
+      // 2. 检索 3 天内过期的激活卡密 (排除永久卡 YJ)
+      const threeDaysLater = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+      const regCodes = await this.prisma.registerCode.findMany({
+        where: {
+          expireTime: {
+            gt: new Date(),
+            lte: threeDaysLater,
+          },
+          cardType: {
+            not: 'YJ',
+          },
+        },
+      });
+
+      this.logger.log(`[定时任务] 扫描到 3 天内即将过期的卡密数: ${regCodes.length} 张`);
+
+      for (const regCode of regCodes) {
+        const alertConfig = (regCode.alertConfig as any) || {};
+        const expireNotice = alertConfig.expireNotice !== false; // 默认开启
+        const expireNotified = alertConfig.expireNotified === true; // 本轮已发过
+
+        if (!expireNotice || expireNotified) {
+          continue;
+        }
+
+        try {
+          await this.triggerExpiryAlert(regCode, config);
+        } catch (err: any) {
+          this.logger.error(`卡密 [${regCode.code}] 发送到期提醒失败:`, err);
+        }
+      }
+    } catch (err: any) {
+      this.logger.error('执行激活码到期扫描发生异常:', err);
+    }
+  }
+
+  /**
+   * 执行单个卡密到期通知行为并更新标记
+   */
+  private async triggerExpiryAlert(regCode: any, config: Record<string, string>) {
+    const code = regCode.code;
+    const expireTimeStr = new Date(regCode.expireTime).toLocaleString('zh-CN');
+
+    // 1. 发射系统通知到大屏
+    await this.createNotification({
+      title: '⚠️ 激活卡密即将到期',
+      content: `卡密 [${code}] 将于 [${expireTimeStr}] 到期（剩余不足3天），为了不影响正常挂机，请及时续费充值。`,
+      level: 'WARN',
+      type: 'license_expiry_warning',
+      registerCode: code,
+    });
+
+    // 2. 发送邮件提醒
+    const alertMailEnabled = config['alert_mail_enabled'] === 'true';
+    const alertEmail = regCode.alertEmail;
+    if (alertMailEnabled && alertEmail) {
+      await this.sendExpiryEmail(alertEmail, code, expireTimeStr, config);
+    }
+
+    // 3. 发送桌面 PWA 通知
+    const subscriptions = (regCode.pushSubscriptions as any[]) || [];
+    const vapidPriv = config['vapid_private_key'];
+    const vapidPub = config['vapid_public_key'];
+    if (vapidPriv && vapidPub && subscriptions.length > 0) {
+      await this.sendExpiryWebPush(subscriptions, code, expireTimeStr);
+    }
+
+    // 4. 修改 alertConfig 字段，标记 expireNotified 为 true 防重复提醒
+    const alertConfig = regCode.alertConfig
+      ? { ...(regCode.alertConfig as any), expireNotified: true }
+      : { expireNotified: true };
+
+    await this.prisma.registerCode.update({
+      where: { id: regCode.id },
+      data: { alertConfig },
+    });
+  }
+
+  /**
+   * 通过 SMTP 邮件向卡密配置的邮箱推送过期警报
+   */
+  private async sendExpiryEmail(
+    alertEmail: string,
+    code: string,
+    expireTimeStr: string,
+    config: Record<string, string>,
+  ) {
+    try {
+      const mailEnabled = config['mail_enabled'] === 'true';
+      const smtpHost = config['smtp_host'];
+      const smtpPort = config['smtp_port'];
+      const smtpUser = config['smtp_user'];
+      const smtpPass = config['smtp_pass'];
+      const smtpFrom = config['smtp_from'] || smtpUser;
+
+      if (!mailEnabled || !smtpHost || !smtpPort || !smtpUser || !smtpPass) {
+        return;
+      }
+
+      const port = parseInt(smtpPort, 10) || 465;
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure: port === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+
+      const toEmails = alertEmail
+        .split(/[;,]/)
+        .map((e) => e.trim())
+        .filter(Boolean);
+      if (toEmails.length === 0) return;
+
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: toEmails,
+        subject: '【小宝修仙】卡密即将到期预警通知',
+        html: `
+          <div style="padding: 24px; font-family: sans-serif; background-color: #f8fafc; color: #1e293b; border-radius: 8px;">
+            <h2 style="color: #ea580c; font-weight: bold; margin-bottom: 16px;">小宝修仙卡密到期预警</h2>
+            <p style="font-size: 14px; line-height: 1.5;">您绑定的卡密即将于 3 天内过期，为了不影响您的设备正常挂机和监控，请及时关注：</p>
+            <div style="margin: 20px 0; padding: 16px; background-color: #fff7ed; border-left: 4px solid #ea580c; border-radius: 4px;">
+              <p style="margin: 0; font-size: 14px;"><strong>卡密激活码:</strong> <span style="font-family: monospace;">${code}</span></p>
+              <p style="margin: 6px 0 0 0; font-size: 14px;"><strong>到期截止时间:</strong> <span style="color: #ea580c; font-weight: bold;">${expireTimeStr}</span></p>
+            </div>
+            <p style="font-size: 12px; color: #64748b; margin-top: 24px;">本邮件为系统自动投递，如已完成续费充值，请忽略此提醒。</p>
+          </div>
+        `,
+      });
+      this.logger.log(`[SMTP] 到期预警邮件已发送至: ${toEmails.join(', ')}`);
+    } catch (err) {
+      this.logger.error('[SMTP] 发送卡密到期邮件报警出错:', err);
+    }
+  }
+
+  /**
+   * 推送 PWA 桌面弹窗通知
+   */
+  private async sendExpiryWebPush(
+    subscriptions: any[],
+    code: string,
+    expireTimeStr: string,
+  ) {
+    const payload = JSON.stringify({
+      title: '⚠️ 卡密即将到期提醒',
+      body: `您的卡密 [${code}] 将于 [${expireTimeStr}] 过期（剩余不足3天），为了不影响挂机，请及时关注。`,
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-192x192.png',
+      data: {
+        url: '/user/settings',
+      },
+    });
+
+    const promises = subscriptions.map(async (sub) => {
+      try {
+        await webpush.sendNotification(sub, payload);
+      } catch (err: any) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          this.logger.warn(`到期提醒中检测到 PWA 订阅失效，准备自动清除: ${sub.endpoint}`);
+          const fresh = await this.prisma.registerCode.findUnique({
+            where: { code },
+            select: { id: true, pushSubscriptions: true },
+          });
+          if (fresh) {
+            const freshSubs = (fresh.pushSubscriptions as any[]) || [];
+            const filtered = freshSubs.filter((s: any) => s.endpoint !== sub.endpoint);
+            await this.prisma.registerCode.update({
+              where: { id: fresh.id },
+              data: { pushSubscriptions: filtered },
+            }).catch(() => {});
+          }
+        } else {
+          this.logger.error(`向 ${sub.endpoint} 发送卡密到期 Web Push 失败:`, err);
+        }
+      }
+    });
+    await Promise.all(promises);
   }
 }

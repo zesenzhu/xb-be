@@ -555,10 +555,15 @@ export class RegisterCodeService {
         }
       }
 
+      const alertConfig = record.alertConfig
+        ? { ...(record.alertConfig as any), expireNotified: false }
+        : undefined;
+
       updateData = {
         expireTime: nextExpireTime,
         status: nextStatus,
         remark: newRemark,
+        ...(alertConfig ? { alertConfig } : {}),
       };
     }
 
@@ -979,17 +984,22 @@ export class RegisterCodeService {
       throw new NotFoundException('注册激活码不存在');
     }
 
+    const defaultCfg = {
+      offline: true,
+      offlineTimeout: 10,
+      launcher: true,
+      locked: false,
+      vpn: true,
+      errorLog: true,
+      memoryLimit: 153600,
+      expireNotice: true,
+    };
+
     return {
       alertEmail: regCode.alertEmail || '',
-      alertConfig: regCode.alertConfig || {
-        offline: true,
-        offlineTimeout: 10,
-        launcher: true,
-        locked: false,
-        vpn: true,
-        errorLog: true,
-        memoryLimit: 153600,
-      },
+      alertConfig: regCode.alertConfig
+        ? { ...defaultCfg, ...(regCode.alertConfig as any) }
+        : defaultCfg,
     };
   }
 
@@ -1537,10 +1547,15 @@ export class RegisterCodeService {
           }
         }
 
+        const alertConfig = record.alertConfig
+          ? { ...(record.alertConfig as any), expireNotified: false }
+          : undefined;
+
         updateData = {
           expireTime: nextExpireTime,
           status: nextStatus,
           remark: newRemark,
+          ...(alertConfig ? { alertConfig } : {}),
         };
       }
 
