@@ -1698,6 +1698,9 @@ export class RegisterCodeService {
         expireTime: regCode.expireTime
           ? regCode.expireTime.toISOString()
           : null,
+        expireTimeFormatted: regCode.expireTime
+          ? new Date(regCode.expireTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+          : '永久',
       };
     }
 
@@ -1782,6 +1785,9 @@ export class RegisterCodeService {
       success: true,
       message: '新设备绑定并验证成功',
       expireTime: updatedExpireTime ? updatedExpireTime.toISOString() : null,
+      expireTimeFormatted: updatedExpireTime
+        ? new Date(updatedExpireTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+        : '永久',
     };
   }
 
